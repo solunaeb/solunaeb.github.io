@@ -12,7 +12,7 @@ import { Cat } from './cat.js';
 import * as FX from './effects.js';
 import { refreshWeather, weather, weatherText, setWeatherOverride } from './weather.js';
 import * as N from './notify.js';
-import { toast, banner, modalOpen, closeModal } from './ui.js';
+import { toast, banner, modalOpen, closeModal, showNotice } from './ui.js';
 import * as P from './panels.js';
 
 const { W, H } = S;
@@ -140,12 +140,13 @@ const app = {
     store.read = store.read.filter(d => d <= u);
     store.played = store.played.filter(d => d <= u);
     if (!T.isEnded(t)) store.celebrated = false;
+    if ((store.humid.refillAt || 0) > t) store.humid = { ...store.humid, refillAt: t };   // 가습기 물 기록도 되돌리기
     ejectDay = 0; syncTestFlag();
   },
   clearTestTime() { T.clearTestTime(); lastEventT = now(); festiveForced = false; syncTestFlag(); },
   weatherOverride: () => weatherOverride,
   setWeather(k) { weatherOverride = k || null; setWeatherOverride(weatherOverride); },
-  testNotify: async () => { await N.requestPermission(); if (!(await N.testNotify())) toast('알림 권한이 없어요.'); },
+  testNotify: async () => { await N.requestPermission(); if (await N.testNotify()) toast('시험 알림을 보냈어요. 화면 오른쪽 아래를 확인해 보세요.', 4200); else toast('알림 권한이 없어요. 설정 → 알림 켜기를 먼저 눌러 주세요.', 4200); },
   celebrate: (force) => celebrate(force),
   replayGreeting: () => greet(),
   resetProgress() { resetProgress(); stopMusic(); ejectDay = 0; },
@@ -364,7 +365,11 @@ function waterPlant(id) {
   }, 1300);
 }
 const HUMID_MS = 24 * 3600 * 1000;
-const humidLevel = () => Math.max(0, 1 - (now() - (store.humid.refillAt || 0)) / HUMID_MS);
+const humidLevel = () => {
+  const since = now() - (store.humid.refillAt || 0);
+  if (since < 0) return 1;                                  // 시각이 거꾸로(테스트로 과거 이동) → 가득 참
+  return Math.min(1, Math.max(0, 1 - since / HUMID_MS));
+};
 let humidRefill = null, nextMist = 0;
 function tapHumid() {
   const lv = humidLevel();
@@ -516,19 +521,33 @@ function checkEvents() {
   }
   lastEventT = t;
 }
-function handleEvent(ev) {
-  N.systemNotify(ev.type, N.eventTag(ev));
+// Windows 알림이 안 뜬 이유를 알림 카드 아래에 한 줄로
+function notifyHint(result) {
+  if (result === 'default') return 'Windows 알림이 아직 꺼져 있어요. 설정(톱니바퀴) → 알림 켜기';
+  if (result === 'denied') return 'Windows 알림이 막혀 있어요. 설정(톱니바퀴) → 알림에서 켜는 방법을 확인해 주세요';
+  return '';
+}
+async function handleEvent(ev) {
+  const tag = N.eventTag(ev);
   if (ev.type === 'mess') {
-    toast(N.MESSAGES.mess.body); sfx.chime(); FX.spawnPuff(150, 190, 10); FX.spawnPuff(60, 200, 6);
+    sfx.chime(); FX.spawnPuff(150, 190, 10); FX.spawnPuff(60, 200, 6);
+    const r = await N.systemNotify('mess', tag);
+    showNotice({ em: '🧹', title: '청소 시간', body: `방이 어질러졌어요! ${CAT_NAME}랑 같이 치워 볼까요?`, hint: notifyHint(r) });
   } else if (ev.type === 'letter') {
     sfx.chime();
-    if (!modalOpen()) P.showLetterArrived(app, ev.day); else toast(N.MESSAGES.letter.body);
+    const r = await N.systemNotify('letter', tag);
+    if (!modalOpen()) P.showLetterArrived(app, ev.day);
+    else showNotice({ em: '✉️', title: '편지 도착', body: `Day ${ev.day} 편지와 LP ${ev.day}가 도착했어요!`, hint: notifyHint(r), onClick: () => P.openLetter(app, ev.day, { typing: true }) });
   } else if (ev.type === 'end') {
+    N.systemNotify('end', tag);
     celebrate(false);
   } else if (ev.type === 'love') {
     const msg = lovePing(Math.floor(ev.at / 3600000)).replace(/^[^:]+:\s*/, '');
     if (cat.sleeping) cat.touch();
-    speak(msg, 5000); sfx.meow(); const b = cat.box; FX.spawnHearts(b.x + b.w / 2, b.y, 4);
+    sfx.meow(); const b = cat.box; FX.spawnHearts(b.x + b.w / 2, b.y, 4);
+    speak(msg, 6000);
+    const r = await N.systemNotify('love', tag, msg);
+    showNotice({ em: '💌', title: `${CAT_NAME}의 한마디`, body: msg, hint: notifyHint(r), ms: 10000, onClick: () => petCat() });
   }
 }
 

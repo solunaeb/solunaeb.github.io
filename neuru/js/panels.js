@@ -155,7 +155,14 @@ export function openSettings(app) {
       h('div', { class: 'row' }, h('span', { class: 'pill ' + permLabel[1] }, permLabel[0])));
     if (perm === 'default') notif.append(h('div', { class: 'row' }, h('button', { class: 'pix-btn small', onclick: async () => { await app.requestPermission(); openSettings(app); } }, '알림 켜기')));
     if (perm === 'denied') notif.append(h('p', { class: 'sub' }, '주소창 왼쪽의 자물쇠(또는 사이트 정보) 아이콘 → 알림 → 허용으로 바꾼 뒤 앱을 다시 열어 주세요.'));
-    notif.append(h('p', { class: 'sub' }, '오전 10시·오후 10시 청소 시간과 밤 11시 편지 도착을 알려 드려요.'));
+    notif.append(h('p', { class: 'sub' }, `청소 시간(오전·오후 10시), 편지 도착(밤 11시), ${CAT_NAME}의 한마디(오전 9시부터 3시간마다)를 알려 드려요.`));
+    if (perm === 'granted') notif.append(h('div', { class: 'row' }, h('button', { class: 'pix-btn small', onclick: () => app.testNotify() }, 'Windows 알림 시험하기')));
+    notif.append(h('p', { class: 'sub' }, '시험 알림이 화면 오른쪽 아래에 안 뜨면 (Windows)'),
+      h('ol', {},
+        h('li', {}, '시작 → 설정 → 시스템 → 알림 에서 "알림"이 켜져 있는지 확인해요.'),
+        h('li', {}, '같은 화면 아래 목록에서 "널 사랑할고양"(또는 Chrome / Microsoft Edge)을 찾아 켜요.'),
+        h('li', {}, '"방해 금지"(또는 "집중 지원")가 켜져 있으면 알림이 조용히 알림 센터로만 들어가요. 꺼 주세요.'),
+        h('li', {}, 'Chrome 이라면 주소창에 chrome://settings/content/notifications 를 넣고 이 사이트가 "허용"에 있는지 확인해요.')));
     if (VAPID_PUBLIC_KEY && perm === 'granted') {
       const area = h('textarea', { readonly: true, 'aria-label': '알림 연결 코드' });
       notif.append(h('div', { class: 'row' }, h('button', {

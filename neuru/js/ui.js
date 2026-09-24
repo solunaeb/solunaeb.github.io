@@ -25,6 +25,27 @@ export const modalOpen = () => !modal.hidden;
 modal.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeModal(); });
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
+// 앱 안 알림 카드
+let noticeTimer = null, noticeClick = null;
+const noticeEl = document.getElementById('notice');
+noticeEl.addEventListener('click', (e) => {
+  const cb = noticeClick;
+  hideNotice();
+  if (!e.target.closest('.n-close')) cb?.();
+});
+export function hideNotice() { noticeEl.hidden = true; clearTimeout(noticeTimer); noticeClick = null; }
+export function showNotice({ em = '🐾', title = '', body = '', hint = '', ms = 9000, onClick = null }) {
+  noticeEl.querySelector('.n-em').textContent = em;
+  noticeEl.querySelector('.n-title').textContent = title;
+  noticeEl.querySelector('.n-body').textContent = body;
+  noticeEl.querySelector('.n-hint').textContent = hint;
+  noticeEl.hidden = false;
+  noticeEl.style.animation = 'none'; void noticeEl.offsetWidth; noticeEl.style.animation = '';
+  noticeClick = onClick;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(hideNotice, ms);
+}
+
 let toastTimer = null;
 export function toast(msg, ms = 2800) {
   const el = document.getElementById('toast');

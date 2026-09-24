@@ -242,6 +242,23 @@ textarea, input, select {
 textarea { font-family: 'GalmuriMono11', monospace; font-size: 12px; min-height: 80px; resize: vertical; }
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--amber); }
 
+/* 앱 안 알림 카드 (어느 창이 열려 있어도 위에 보임) */
+#notice {
+  position: fixed; z-index: 35; top: calc(12px + var(--safe-t)); left: 50%; transform: translateX(-50%);
+  width: min(92vw, 420px); display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px;
+  background: #fff6dc; color: #2b2622; cursor: pointer;
+  box-shadow: 0 -3px 0 #2b2622, 0 3px 0 #2b2622, -3px 0 0 #2b2622, 3px 0 0 #2b2622, 0 9px 0 rgba(0,0,0,.35);
+  animation: noticeIn .28s steps(5);
+}
+@keyframes noticeIn { from { transform: translate(-50%, -24px); opacity: 0; } }
+#notice .n-em { font-size: 26px; flex: none; }
+#notice .n-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+#notice .n-title { font-size: 13px; color: #7a5a3a; font-weight: 400; }
+#notice .n-body { font-size: 17px; line-height: 1.45; word-break: keep-all; }
+#notice .n-hint { font-size: 12px; color: #a8452f; }
+#notice .n-hint:empty { display: none; }
+#notice .n-close { flex: none; background: #e8d8b0; color: #2b2622; }
+
 /* 느루 말풍선 */
 #bubble {
   position: fixed; z-index: 6; pointer-events: none; max-width: min(260px, 70vw);

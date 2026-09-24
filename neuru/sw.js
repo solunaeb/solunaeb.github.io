@@ -1,6 +1,6 @@
 // 서비스 워커 — 첫 접속 때 모든 리소스(편지·음원 포함)를 저장해 오프라인에서도 동작
 importScripts('./data/build-info.js');
-const APP_VERSION = 'v1.6.0';
+const APP_VERSION = 'v1.6.1';
 const CACHE = `neuru-${APP_VERSION}-${self.CONTENT_BUILD || 'dev'}`;
 const CORE = [
   './', './index.html', './manifest.webmanifest', './css/style.css',

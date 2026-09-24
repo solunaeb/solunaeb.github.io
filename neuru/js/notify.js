@@ -1,12 +1,13 @@
 // 알림: 권한 요청, 시스템 알림, 웹 푸시 구독
 import { VAPID_PUBLIC_KEY, CAT_NAME } from './config.js';
 import { store, persist } from './store.js';
-import { kst } from './time.js';
+import { kst, isTestClock } from './time.js';
 import { lovePing } from './speech.js';
 
 let reg = null;
 
 export const MESSAGES = {
+  love: { title: '느루의 한마디 💌', body: '' },
   mess: { title: '널 사랑할고양', body: `🧹 청소할 시간이에요! ${CAT_NAME}가 기다리고 있어요.` },
   letter: { title: '널 사랑할고양', body: '✉️ 오늘의 편지와 음악이 도착했어요!' },
   end: { title: '널 사랑할고양', body: '🎉 드디어 오늘이에요! 21일의 기다림이 끝났어요.' },
@@ -56,22 +57,34 @@ export async function subscribePush() {
   return sub.toJSON();
 }
 
-export async function systemNotify(kind, tag) {
-  if (store.notified.includes(tag)) return;
-  store.notified.push(tag); persist();
-  if (permission() !== 'granted') return;
-  const m = kind === 'love' ? { title: '널 사랑할고양', body: lovePing(Math.floor(Date.now() / 3600000)) } : MESSAGES[kind];
+// Windows(또는 폰) 알림 센터로 팝업 띄우기. 결과: 'shown' | 'dup' | 'denied' | 'default' | 'unsupported' | 'error'
+export async function systemNotify(kind, tag, body) {
+  // 같은 알림은 한 번만 (테스트 시계를 쓰는 중에는 몇 번이든 다시 보냄)
+  if (!isTestClock()) {
+    if (store.notified.includes(tag)) return 'dup';
+    store.notified.push(tag);
+    if (store.notified.length > 200) store.notified.splice(0, store.notified.length - 200);
+    persist();
+  }
+  const perm = permission();
+  if (perm !== 'granted') return perm;
+  const m = { ...(MESSAGES[kind] || MESSAGES.love), ...(body ? { body } : {}) };
+  const opts = {
+    body: m.body, tag, renotify: true, requireInteraction: false, silent: false,
+    icon: './icons/icon-192.png', badge: './icons/badge-96.png', data: { url: './' },
+  };
   try {
     const r = reg || await navigator.serviceWorker.ready;
-    await r.showNotification(m.title, { body: m.body, tag, icon: './icons/icon-192.png', badge: './icons/badge-96.png', data: { url: './' } });
+    await r.showNotification(m.title, opts);
+    return 'shown';
   } catch {
-    try { new Notification(m.title, { body: m.body, tag, icon: './icons/icon-192.png' }); } catch {}
+    try { new Notification(m.title, opts); return 'shown'; } catch { return 'error'; }
   }
 }
 
 export async function testNotify() {
   if (permission() !== 'granted') return false;
   const r = reg || await navigator.serviceWorker.ready;
-  await r.showNotification('널 사랑할고양', { body: '🔔 알림 테스트예요. 잘 보이나요?', tag: 'test-' + Date.now(), icon: './icons/icon-192.png', badge: './icons/badge-96.png' });
+  await r.showNotification('널 사랑할고양', { body: '🔔 알림 테스트예요. 화면 오른쪽 아래에 이 알림이 보이나요?', tag: 'test-' + Date.now(), renotify: true, icon: './icons/icon-192.png', badge: './icons/badge-96.png' });
   return true;
 }
