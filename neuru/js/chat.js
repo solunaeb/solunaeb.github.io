@@ -3,6 +3,7 @@
 import { CAT_NAME, HER_NAME, HIS_NAME, TOTAL_DAYS, END_AT } from './config.js';
 import { stageOf, STAGE_LABEL, say } from './speech.js';
 import { sealSecret, openSecret, forgetWrapKey } from './secure.js';
+import { hasBundledAiKey, getBundledAiKey } from './content.js';
 
 const KEY_AI = 'neuru.ai';
 const KEY_LOG = 'neuru.chat';
@@ -19,7 +20,9 @@ export function saveAiSettings(s) {
   const { key, provider, base, mode, proxy, token, ...rest } = s;   // 원문 키·예전 설정은 저장하지 않음
   localStorage.setItem(KEY_AI, JSON.stringify(rest));
 }
-export function aiReady() { return !!aiSettings().sealed; }
+export function aiReady() { return !!aiSettings().sealed || hasBundledAiKey(); }
+// 어떤 키를 쓰는지: 'device'(이 기기에 넣은 키) / 'bundled'(미리 넣어 둔 키) / null
+export function keySource() { return aiSettings().sealed ? 'device' : hasBundledAiKey() ? 'bundled' : null; }
 
 let keyCache = null;                          // 이번 실행 동안만 메모리에 둠
 export async function getKey() {
@@ -35,6 +38,7 @@ export async function getKey() {
     return keyCache;
   }
   keyCache = await openSecret(s.sealed);
+  if (!keyCache) keyCache = await getBundledAiKey();   // 기기에 넣은 키가 없으면 미리 넣어 둔 키
   return keyCache;
 }
 export async function storeKey(settings, plainKey) {
@@ -279,7 +283,7 @@ export async function askNeuru(userText, ctx) {
   const history = log.slice(-16);
   const settings = aiSettings();
   let reply = null, via = 'offline';
-  if (settings.sealed) {
+  if (aiReady()) {
     const key = await getKey();
     if (key) {
       try {
@@ -296,7 +300,7 @@ export async function askNeuru(userText, ctx) {
 }
 
 // 연결 확인: ① 키 확인(모델 목록) → ② 실제로 대답 받기 → 성공하면 키를 암호화해 저장
-export async function testAi(settings, plainKey, ctx, log = () => {}) {
+export async function testAi(settings, plainKey, ctx, log = () => {}, { store = true } = {}) {
   const fresh = { model: settings.model || '', resolved: '', models: [] };
   const key = plainKey || await getKey();
   if (!key) throw new AiError(401, '저장된 키가 없어요', 'NO_KEY');
@@ -308,10 +312,15 @@ export async function testAi(settings, plainKey, ctx, log = () => {}) {
   try {
     const r = await generateAny(withModels, key, systemPrompt(ctx), [{ role: 'me', text: '안녕?' }], 512, PERSONA[st].temp,
       (m, a) => log(`② ${m} 에게 말 거는 중${a ? ' (다시 시도)' : ''}…`));
-    await storeKey({ ...withModels, resolved: fresh.model ? '' : r.model, keyOkAt: Date.now(), okAt: Date.now() }, key);
+    const meta = { ...withModels, resolved: fresh.model ? '' : r.model, keyOkAt: Date.now(), okAt: Date.now() };
+    if (store) await storeKey(meta, key); else saveAiSettings({ ...aiSettings(), ...meta });
     return { ...r, keyOk: true };
   } catch (e) {
-    if (busy(e)) { await storeKey({ ...withModels, keyOkAt: Date.now(), okAt: 0 }, key); e.keyOk = true; }
+    if (busy(e)) {
+      const meta = { ...withModels, keyOkAt: Date.now(), okAt: 0 };
+      if (store) await storeKey(meta, key); else saveAiSettings({ ...aiSettings(), ...meta });
+      e.keyOk = true;
+    }
     throw e;
   }
 }

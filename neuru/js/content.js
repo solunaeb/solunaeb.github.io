@@ -71,3 +71,13 @@ export async function getPhotoUrl(entry) {
   photoCache.set(entry.src, url);
   return url;
 }
+
+// ── 미리 넣어 둔 AI 키 (content/ai-key.txt → 빌드 때 암호화) ──
+export function hasBundledAiKey() { return !!manifest?.ai; }
+export async function getBundledAiKey() {
+  if (!manifest?.ai) return null;
+  try {
+    const plain = await decrypt('ai-key', b64ToBytes(manifest.ai.iv), b64ToBytes(manifest.ai.data));
+    return new TextDecoder().decode(plain).trim();
+  } catch { return null; }
+}

@@ -10,6 +10,7 @@ data/                                      암호화된 편지·음원 (자동 �
 content/letters.txt                        ✏️ 편지 원고 — 이 파일만 고치면 됨 (GitHub 에 안 올라감)
 content/music/day01.mp3 ~ day21.mp3        🎵 음악 파일 (GitHub 에 안 올라감)
 content/photos/                            📷 서랍·액자 사진 (GitHub 에 안 올라감)
+content/ai-key.txt                         🔑 느루 대화용 Gemini 키 (GitHub 에 안 올라감)
 tools/build_content.py                     원고 → data/ 암호화 빌드
 push/, .github/workflows/push.yml          GitHub Actions 웹 푸시 알림
 ```
@@ -55,25 +56,37 @@ python -m http.server 8000
 
 원고나 사진을 고칠 때마다 3번을 다시 실행하고 GitHub 에 올리면, 여자친구 기기에서는 다음에 앱을 열 때 자동으로 새 내용으로 바뀝니다.
 
-## 3. GitHub Pages 로 배포
+## 3. GitHub 에 올리기
 
-1. GitHub 에서 새 저장소(Public)를 만듭니다. 예: `neuru`
-2. 이 폴더를 올립니다.
-   ```bash
-   git init
-   git add .
-   git commit -m "널 사랑할고양"
-   git branch -M main
-   git remote add origin https://github.com/<아이디>/neuru.git
-   git push -u origin main
-   ```
-   `.gitignore` 덕분에 `letters.txt` 와 mp3 원본은 올라가지 않습니다. `git status` 로 한 번 확인해 주세요.
-3. 저장소 **Settings → Pages → Branch: main / (root) → Save**
-4. 1~2분 뒤 `https://<아이디>.github.io/neuru/` 에서 열립니다.
+> ⚠️ **GitHub 웹 화면의 "Upload files" 는 `.gitignore` 를 무시해요.** `neuru` 폴더를 통째로 끌어다 올리면 편지 원고, 사진·mp3 원본, API 키까지 공개 저장소에 올라가요. 아래 두 방법 중 하나로만 올려 주세요.
+
+### 방법 A. 웹 업로드를 계속 쓸 때 — `make_upload.py` 로 모아서 올리기
+1. `python tools/make_upload.py` 실행 → `neuru` 폴더 옆에 `neuru-upload` 폴더가 생겨요 (빌드도 자동으로 해 줘요)
+2. GitHub 저장소 → **Add file → Upload files** → `neuru-upload` 폴더 **안의 내용 전부**를 끌어다 놓기
+3. 아래 **Commit changes** 클릭
+
+`neuru-upload` 에는 올려도 되는 파일만 들어 있고, 원본이 섞이면 도구가 스스로 멈춰요.
+
+### 방법 B. GitHub Desktop 으로 커밋·푸시 (추천, 한 번만 설정)
+`.gitignore` 를 지켜 주기 때문에 실수로 원본이 올라갈 일이 없어요.
+1. https://desktop.github.com 에서 설치 → GitHub 계정으로 로그인
+2. **File → Clone repository** → `neuru` 저장소 선택 → 저장할 위치 고르기 (예: `문서\GitHub\neuru`)
+3. 그 폴더에 이 프로젝트 파일들을 복사 (content 폴더 포함해도 괜찮아요. `.gitignore` 가 원본을 걸러요)
+4. `python tools/build_content.py` 실행
+5. GitHub Desktop 왼쪽 **Changes** 목록 확인 → `content/` 의 원본 파일이 **목록에 없는지** 꼭 확인
+6. 왼쪽 아래 Summary 에 한 줄 메모(예: `Day 3 편지 추가`) → **Commit to main** → 위쪽 **Push origin**
+
+이후에는 편지·사진을 고칠 때마다 4 → 5 → 6 만 반복하면 돼요.
+
+## 3-1. GitHub Pages 켜기
+
+1. GitHub 에서 새 저장소(Public)를 만들고 위의 방법 A 또는 B 로 올립니다. 예: `neuru`
+2. 저장소 **Settings → Pages → Branch: main / (root) → Save**
+3. 1~2분 뒤 `https://<아이디>.github.io/neuru/` 에서 열립니다.
 
 ## 4. 테스트 모드
 
-주소 뒤에 `?test` 를 붙여 열면(`.../neuru/?test`) 입장 후 비밀번호를 묻습니다. 기본 비밀번호는 `nuru1119` 입니다.
+주소 뒤에 `?test` 를 붙여 열면(`.../neuru/?test`) 입장 후 비밀번호를 묻습니다. (비밀번호는 여기 적지 않아요. 저장소가 공개라서요.)
 
 초록 벌레 버튼으로 가상 시각 이동(Day N 도착 10초 전, 다음 청소, 수료 직전·직후 등), 날씨 고정, 화분 성장 단계, 방 다시 어지르기, 가습기 물 비우기, 느루 재우기, 3시간 알림 미리 보기, 알림 테스트, 축하 연출, 진행 초기화를 할 수 있어요.
 
@@ -117,16 +130,21 @@ python -c "import hashlib;print(hashlib.sha256(b'neuru:' + '새비밀번호'.enc
 
 오른쪽 위 말풍선 버튼으로 느루와 대화할 수 있어요. 느루는 10월 29일부터 21일 동안 아기 고양이 → 어린 고양이 → 어른 고양이로 자라면서 말투와 사랑에 대한 생각도 자라요.
 
-### 키 넣기 (테스트 모드에서만)
+### 키 미리 넣어 두기 (추천 — 여자친구는 아무것도 입력하지 않아도 돼요)
 1. https://aistudio.google.com → **Get API key → Create API key** (무료, 카드 등록 없음)
-2. 여자친구 기기에서 `?test` 로 테스트 모드 → **벌레 버튼 → 느루와 대화 (Gemini 연결)**
-3. 키 붙여 넣기 → 모델 칸은 비워 두기 (자동 선택: 최신 Flash → 붐비면 Flash-Lite)
-4. **연결 확인** → "① 키 확인 ✓ ② 대답 받기 ✓"가 뜨면 저장까지 끝 → **테스트 모드 끝내기**
-5. 말투 확인: 날짜를 10/30(아기), 11/8(어린 고양이), 11/17(어른)로 옮겨 가며 대화해 보기
+2. 내 컴퓨터의 `content/ai-key.txt` 를 열어 `#` 로 시작하는 설명 줄 아래에 키를 한 줄로 붙여 넣고 저장
+3. `python tools/build_content.py` 실행 → 마지막 줄에 `AI 키 포함됨 (AIza…, 암호화)` 가 나오면 성공
+4. 커밋·푸시 → 여자친구가 앱을 열면 바로 느루와 대화할 수 있어요
+5. 확인: 테스트 모드 → 벌레 버튼 → **느루와 대화 (Gemini 연결)** 에서 키 칸을 비운 채 **연결 확인**
 
-"② 대답 받기: 실패 / 모델 혼잡(503)"이 나오면 키는 정상이고 구글 쪽이 잠시 붐비는 거예요. 키는 이미 저장됐으니 잠시 뒤 다시 누르면 돼요.
+- `content/ai-key.txt` 는 `.gitignore` 에 있어서 원문은 올라가지 않고, 편지처럼 암호화된 값만 `data/content.json` 에 들어가요.
+- 키를 바꾸려면 이 파일만 고치고 다시 빌드·푸시하면 돼요. 키를 빼려면 파일에서 키 줄을 지우고 다시 빌드하면 돼요.
+- 저장소가 공개라서 "간단한" 보호예요. 작정하고 앱 코드를 뜯어보면 키를 꺼낼 수 있지만, 결제 계정이 연결되어 있지 않으니 요금은 나오지 않고 최악의 경우 무료 사용량이 잠시 막히는 정도예요. 원문 키가 그대로 올라가지 않아서 구글의 유출 감지에 걸려 키가 막히는 일도 피할 수 있어요.
 
-### 키는 이렇게 보관돼요
+### 특정 기기에만 다른 키 쓰기 (선택)
+테스트 모드의 키 칸에 다른 키를 넣고 **연결 확인**을 누르면, 그 기기에서는 그 키를 우선 써요. 그 키는 기기 안에서만 꺼낼 수 없는 열쇠로 암호화해 보관하고, **이 기기 키 지우기** 를 누르면 다시 미리 넣어 둔 키로 돌아가요.
+
+### 기기에 넣은 키는 이렇게 보관돼요
 - 연결 확인에 성공하면 키를 **이 기기 안에서만 쓰이고 밖으로 꺼낼 수 없는 암호 열쇠(AES-256, WebCrypto)** 로 잠가서 저장해요. 저장 공간에는 잠긴 값만 남고 키 원문은 없어요.
 - 화면에도 키를 다시 보여 주지 않고 앞뒤 몇 글자만 보여 줘요. 예전 버전에서 원문으로 저장된 키는 앱을 열 때 자동으로 암호화해서 옮겨요.
 - 브라우저 데이터를 지우면 열쇠도 함께 사라지므로, 그때는 테스트 모드에서 키를 다시 넣으면 돼요.
@@ -137,7 +155,7 @@ python -c "import hashlib;print(hashlib.sha256(b'neuru:' + '새비밀번호'.enc
 - AI Studio 키는 처음부터 Gemini API 전용으로 묶여 있고, 인터넷에 새어 나간 키는 구글이 감지해 막아 줘요
 - (선택) Google Cloud 콘솔 → 그 프로젝트 → **API 및 서비스 → 사용 설정된 API → Generative Language API → 할당량** 에서 하루 요청 수를 낮게 조정
 - 11월 19일이 지나 더 쓰지 않으면 AI Studio 에서 키를 삭제하기. 새어 나간 것 같으면 키를 삭제하고 새 키로 연결 확인만 다시 하기
-- 테스트 모드 비밀번호를 기본값(`nuru1119`)에서 꼭 바꿔 두기 (키를 넣고 빼는 곳이 테스트 모드뿐)
+- 테스트 모드 비밀번호는 남이 짐작하기 어렵게 (테스트 모드에서는 앞날의 편지도 볼 수 있어요)
 - 대화 내용은 답을 만들기 위해 구글 서버로 전송되고, 무료 사용량의 대화는 서비스 개선에 쓰일 수 있어요. 민감한 개인정보는 적지 않는 게 좋아요
 
 키가 없거나, 구글이 붐비거나, 인터넷이 끊기면 느루가 미리 써 둔 대사로 대답해요. 느루가 부를 이름은 `js/config.js` 의 `HER_NAME`, `HIS_NAME` 으로 정할 수 있어요.
@@ -154,8 +172,7 @@ python -c "import hashlib;print(hashlib.sha256(b'neuru:' + '새비밀번호'.enc
 - [ ] PC: Chrome/Edge 주소창의 설치 아이콘 → 설치 → 알림 허용
 - [ ] PC 자동 실행: `chrome://apps` 에서 앱 오른쪽 클릭 → *로그인할 때 시작* (Edge 는 `edge://apps`). 앱 안의 *설정 → 컴퓨터를 켜면 바로 열기* 에도 같은 안내가 있어요.
 - [ ] AI Studio 에서 Gemini 키 만들기 (결제 계정 연결 안 함)
-- [ ] 테스트 모드 → 느루와 대화 (Gemini 연결) → 키 → 연결 확인 → 테스트 모드 끝내기
-- [ ] 테스트 모드 비밀번호를 기본값에서 바꾸기
+- [ ] `content/ai-key.txt` 에 키 넣고 빌드 → 테스트 모드에서 연결 확인 → 테스트 모드 끝내기
 - [ ] 두 기기의 알림 연결 코드를 `PUSH_SUBSCRIPTIONS` 에 등록 → Actions 에서 test 발송 확인
 - [ ] 입소 직전 커밋 하나 (예약 실행 60일 규칙)
 

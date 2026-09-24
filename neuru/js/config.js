@@ -31,8 +31,8 @@ export const MESS_HOURS = [10, 22];
 export const CONTENT_SECRET = '88lOoyxNuFAncBzta0iJ9xq7Tyt077vw';
 
 // 테스트 모드 비밀번호의 SHA-256 해시 (sha256("neuru:" + 비밀번호)).
-// 기본 비밀번호는 nuru1119 — README의 방법으로 꼭 바꿔 주세요.
-export const TEST_PASSWORD_HASH = '4b6f67a3baf99a0add6c5bd2c340ef2bc8fe6a7387d95ba0021f1cee65004a56';
+// 비밀번호를 바꾸려면 README 4번의 방법으로 해시를 새로 만들어 넣으세요.
+export const TEST_PASSWORD_HASH = '795620ab1da76052ef65ce90af3d30fbcd553a0ae312a5691795bbbf956b0c82';
 
 // 웹 푸시(VAPID) 공개키. 비워 두면 앱이 켜져 있을 때의 알림만 동작합니다.
 // 테스트 모드 > "푸시 키 만들기"로 만든 공개키를 붙여 넣으세요.

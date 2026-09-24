@@ -6,7 +6,7 @@ import { kst, letterUnlockAt } from './time.js';
 import { TOTAL_DAYS, FIRST_LETTER_AT, END_AT, TEST_PASSWORD_HASH, VAPID_PUBLIC_KEY, CAT_NAME } from './config.js';
 import { WEATHER_KINDS, WEATHER_LABEL } from './weather.js';
 import { photos, getPhotoUrl } from './content.js';
-import { askNeuru, chatLog, clearChat, aiSettings, testAi, listModels, rankModels, explainAiError, aiReady, getKey, forgetKey } from './chat.js';
+import { askNeuru, chatLog, clearChat, aiSettings, testAi, listModels, rankModels, explainAiError, aiReady, getKey, forgetKey, keySource } from './chat.js';
 import { stageOf, STAGE_LABEL } from './speech.js';
 import { volumes, setVolume } from './audio.js';
 
@@ -273,16 +273,17 @@ export function openTest(app) {
 
     // AI 대화 연결 (Google Gemini) — 키는 이 기기에서 꺼낼 수 없는 열쇠로 암호화해 보관
     const ai = aiSettings();
-    const keyIn = h('input', { type: 'password', value: '', autocomplete: 'off', placeholder: ai.sealed ? `저장된 키 ${ai.hint} (바꿀 때만 입력)` : 'AI Studio 에서 받은 키 (AIza… 로 시작)', 'aria-label': 'Gemini API 키' });
+    const src = keySource();
+    const keyIn = h('input', { type: 'password', value: '', autocomplete: 'off', placeholder: src === 'device' ? `이 기기에 넣은 키 ${ai.hint} (바꿀 때만 입력)` : src === 'bundled' ? '미리 넣어 둔 키 사용 중 (다른 키를 쓸 때만 입력)' : 'AI Studio 에서 받은 키 (AIza… 로 시작)', 'aria-label': 'Gemini API 키' });
     const modelIn = h('input', { type: 'text', value: ai.model, placeholder: '비워 두면 자동 선택', 'aria-label': '모델 이름', list: 'neuru-models' });
     const modelList = h('datalist', { id: 'neuru-models' }, (ai.models || []).map(m => h('option', { value: m })));
-    const status = h('span', { class: 'pill ' + (ai.sealed && ai.okAt ? 'ok' : ai.sealed ? 'warn' : 'bad') },
-      ai.sealed && ai.okAt ? `연결됨 ✓ (${ai.model || ai.resolved})` : ai.sealed && ai.keyOkAt ? '키 정상 ✓ · 대답 확인 전' : ai.sealed ? '키 저장됨 · 연결 확인 전' : '키 없음');
+    const status = h('span', { class: 'pill ' + (src && ai.okAt ? 'ok' : src ? 'warn' : 'bad') },
+      src && ai.okAt ? `연결됨 ✓ (${ai.model || ai.resolved})` : src && ai.keyOkAt ? '키 정상 ✓ · 대답 확인 전' : src ? '키 준비됨 · 연결 확인 전' : '키 없음');
     const aiOut = h('textarea', { readonly: true, 'aria-label': 'AI 연결 결과' });
-    aiOut.value = ai.sealed ? `저장된 키: ${ai.hint} (암호화되어 보관 중)` : '키가 없어요. 느루는 미리 써 둔 대사로만 대답해요.';
+    aiOut.value = src === 'device' ? `이 기기에 넣은 키: ${ai.hint} (암호화되어 보관 중)` : src === 'bundled' ? '미리 넣어 둔 키(content/ai-key.txt)를 쓰고 있어요. 여자친구는 따로 입력할 필요가 없어요.' : '키가 없어요. 느루는 미리 써 둔 대사로만 대답해요.';
     const setStatus = (cls, text) => { status.className = 'pill ' + cls; status.textContent = text; };
     const failText = (e) => '\n' + explainAiError(e) + `\n\n[원본] ${e.status ?? ''} ${e.apiMsg || e.message}`;
-    const theKey = async () => keyIn.value.trim() || (ai.sealed ? await getKey() : '');
+    const theKey = async () => keyIn.value.trim() || (src ? await getKey() : '');
     sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화 (Gemini 연결)`),
       h('div', { class: 'row' }, status),
       h('p', { class: 'sub' }, '"연결 확인"을 누르면 확인과 저장이 한 번에 돼요. 키는 이 기기에서 꺼낼 수 없는 열쇠로 암호화해서 보관하고, 화면에 다시 보여 주지 않아요.'),
@@ -295,10 +296,11 @@ export function openTest(app) {
           const lines = [];
           const log = (t) => { if (t.startsWith('②') && lines.length && lines[lines.length - 1].startsWith('②')) lines.pop(); lines.push(t); aiOut.value = lines.join('\n'); };
           try {
-            const r = await testAi({ model: modelIn.value.trim() }, k, app.chatContext(), log);
+            const typed = !!keyIn.value.trim();
+            const r = await testAi({ model: modelIn.value.trim() }, k, app.chatContext(), log, { store: typed });
             keyIn.value = '';
             lines.pop(); log(`② 대답 받기: 성공 ✓ (모델: ${r.model})`);
-            log(`\n${CAT_NAME}: ${r.text}\n\n연결 성공! 키는 암호화해서 저장했어요.`);
+            log(`\n${CAT_NAME}: ${r.text}\n\n연결 성공! ${typed ? '키는 암호화해서 이 기기에 저장했어요.' : '미리 넣어 둔 키로 연결돼요.'}`);
             setStatus('ok', `연결됨 ✓ (${r.model})`);
             toast(`${CAT_NAME}와 연결됐어요!`);
           } catch (e) {
@@ -320,7 +322,7 @@ export function openTest(app) {
             aiOut.value = `추천 순서 (모델 칸에서 골라 쓸 수 있어요)\n\n${names.join('\n')}`;
           } catch (e) { aiOut.value = '불러오기 실패' + failText(e); }
         } }, '쓸 수 있는 모델 보기'),
-        h('button', { class: 'pix-btn small', onclick: async () => { if (confirm('이 기기에서 AI 키와 암호 열쇠를 모두 지울까요?')) { await forgetKey(); openTest(app); } } }, '키 지우기')),
+        h('button', { class: 'pix-btn small', onclick: async () => { if (confirm('이 기기에 넣은 AI 키와 암호 열쇠를 지울까요? (미리 넣어 둔 키는 그대로 남아요)')) { await forgetKey(); openTest(app); } } }, '이 기기 키 지우기')),
       aiOut));
 
     // 푸시 키
