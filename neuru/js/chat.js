@@ -6,15 +6,18 @@ const KEY_AI = 'neuru.ai';
 const KEY_LOG = 'neuru.chat';
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 
+// mode: 'proxy' (중계 서버 — 추천, 키가 브라우저에 없음) / 'key' (키 직접 입력)
 export function aiSettings() {
-  const s = { key: '', model: '', resolved: '', ...load(KEY_AI, {}) };
+  const s = { mode: 'proxy', proxy: '', token: '', key: '', model: '', resolved: '', ...load(KEY_AI, {}) };
+  if (!load(KEY_AI, {}).mode && s.key) s.mode = 'key';
   if (s.model === 'gemini-flash-latest') s.model = ''; // 예전 기본값은 자동 선택으로
   if (s.v !== 2) { s.resolved = ''; s.v = 2; }          // 모델 고르는 기준이 바뀌어 한 번 다시 고름
-  s.key = (s.key || '').trim();
+  s.key = (s.key || '').trim(); s.proxy = (s.proxy || '').trim().replace(/\/+$/, ''); s.token = (s.token || '').trim();
   return s;
 }
 export function saveAiSettings(s) { localStorage.setItem(KEY_AI, JSON.stringify(s)); }
-export function aiReady() { return !!aiSettings().key; }
+export function aiReady() { const s = aiSettings(); return s.mode === 'proxy' ? !!(s.proxy && s.token) : !!s.key; }
+const hasCred = (s) => s.mode === 'proxy' ? !!(s.proxy && s.token) : !!s.key;
 export function chatLog() { return load(KEY_LOG, []); }
 function saveLog(log) { localStorage.setItem(KEY_LOG, JSON.stringify(log.slice(-40))); }
 export function clearChat() { localStorage.removeItem(KEY_LOG); }
@@ -114,12 +117,15 @@ class AiError extends Error {
   constructor(status, apiMsg, reason) { super(`${status} ${apiMsg || ''}`.trim()); this.status = status; this.apiMsg = apiMsg || ''; this.reason = reason || ''; }
 }
 
-async function call(path, key, body) {
+async function call(path, cfg, body) {
   let res;
+  const viaProxy = cfg.mode === 'proxy';
+  const base = viaProxy ? cfg.proxy + '/v1beta' : API;
+  const headers = viaProxy ? { 'Content-Type': 'application/json', 'X-Neuru-Token': cfg.token } : { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key };
   try {
-    res = await withTimeout(fetch(API + path, {
+    res = await withTimeout(fetch(base + path, {
       method: body ? 'POST' : 'GET',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     }), 25000);
   } catch (e) { throw new AiError(0, e.message, 'network'); }
@@ -130,11 +136,11 @@ async function call(path, key, body) {
 }
 
 // 이 키로 쓸 수 있는 대화 모델 목록
-export async function listModels(key) {
+export async function listModels(cfg) {
   const out = [];
   let token = '';
   for (let i = 0; i < 5; i++) {
-    const j = await call(`/models?pageSize=200${token ? '&pageToken=' + token : ''}`, key);
+    const j = await call(`/models?pageSize=200${token ? '&pageToken=' + token : ''}`, cfg);
     for (const m of j.models || []) if ((m.supportedGenerationMethods || []).includes('generateContent')) out.push(m.name.replace(/^models\//, ''));
     token = j.nextPageToken; if (!token) break;
   }
@@ -142,6 +148,12 @@ export async function listModels(key) {
 }
 
 // 대화에 맞는 모델 고르기: 최신 Flash (한국어가 더 자연스러움) → 최신 Flash-Lite (음성·이미지·영상 등 특수 모델 제외)
+export function rankModels(names) {
+  const bad = /(tts|image|live|audio|embed|robotics|omni|transcribe|computer|veo|imagen|learnlm|gemma|aqa|thinking|exp|native)/i;
+  const ver = (n) => { const m = n.match(/gemini-(\d+)(?:\.(\d+))?/); return m ? +m[1] * 100 + (+m[2] || 0) : 0; };
+  const rank = (n) => (/flash/.test(n) && !/-lite/.test(n) ? 2000 : /-lite/.test(n) ? 1000 : 0) + ver(n) * 2 - (/preview/.test(n) ? 1 : 0) - (/latest/.test(n) ? 5 : 0);
+  return names.filter(n => /^gemini-/.test(n) && !bad.test(n)).sort((a, b) => rank(b) - rank(a));
+}
 export function pickModel(names) {
   const bad = /(tts|image|live|audio|embed|robotics|omni|transcribe|computer|veo|imagen|learnlm|gemma|aqa|thinking|exp|native)/i;
   const ver = (n) => { const m = n.match(/gemini-(\d+)(?:\.(\d+))?/); return m ? +m[1] * 100 + (+m[2] || 0) : 0; };
@@ -150,13 +162,38 @@ export function pickModel(names) {
   return ok.sort((a, b) => rank(b) - rank(a))[0] || null;
 }
 
-async function resolveModel(settings) {
-  if (settings.model) return settings.model;
-  if (settings.resolved) return settings.resolved;
-  const m = pickModel(await listModels(settings.key));
-  if (!m) throw new AiError(404, '사용할 수 있는 대화 모델이 없어요', 'NO_MODEL');
-  saveAiSettings({ ...settings, resolved: m });
-  return m;
+// 시도할 모델 순서: 직접 적은 모델 → 지난번에 잘 된 모델 → 나머지 후보 (최대 4개)
+async function modelOrder(settings) {
+  let list = settings.models;
+  if (!list?.length) {
+    list = rankModels(await listModels(settings));
+    if (!list.length) throw new AiError(404, '사용할 수 있는 대화 모델이 없어요', 'NO_MODEL');
+    saveAiSettings({ ...aiSettings(), ...settings, models: list });
+  }
+  // 한국어가 가장 자연스러운 모델을 늘 먼저, 붐비면 지난번에 잘 된 모델 → 나머지 순서
+  return [...new Set([settings.model || list[0], settings.resolved, ...list].filter(Boolean))].slice(0, 4);
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const busy = (e) => [500, 503, 504].includes(e.status) || (e.status === 429 && e.reason !== 'DAILY_LIMIT');
+
+// 붐비면 잠깐 쉬고 한 번 더, 그래도 안 되면 다음 모델로
+async function generateAny(settings, sys, history, maxTokens, temp, onTry) {
+  const order = await modelOrder(settings);
+  let last = null;
+  for (const [idx, model] of order.entries()) {
+    const tries = idx === 0 && order.length > 1 ? 1 : 2;   // 첫 모델이 붐비면 기다리지 않고 바로 다음 모델로
+    for (let attempt = 0; attempt < tries; attempt++) {
+      onTry?.(model, attempt);
+      try { return { text: await generate(settings, model, sys, history, maxTokens, temp), model }; }
+      catch (e) {
+        last = e;
+        if (!busy(e) && e.status !== 404) throw e;         // 키·권한 문제는 다른 모델로 넘어가도 소용없음
+        if (e.status === 404) break;                        // 없는 모델 → 바로 다음 모델
+        if (attempt < tries - 1) await sleep(1500);
+      }
+    }
+  }
+  throw last;
 }
 
 function thinkingFor(model) {
@@ -166,7 +203,7 @@ function thinkingFor(model) {
   return null;
 }
 
-async function generate(key, model, sys, history, maxTokens = 1024, temperature = 0.7) {
+async function generate(cfg, model, sys, history, maxTokens = 1024, temperature = 0.7) {
   const body = {
     systemInstruction: { parts: [{ text: sys }] },
     contents: history.map(m => ({ role: m.role === 'me' ? 'user' : 'model', parts: [{ text: m.text }] })),
@@ -175,10 +212,10 @@ async function generate(key, model, sys, history, maxTokens = 1024, temperature 
   const th = thinkingFor(model);
   let j;
   try {
-    j = await call(`/models/${encodeURIComponent(model)}:generateContent`, key, th ? { ...body, generationConfig: { ...body.generationConfig, thinkingConfig: th } } : body);
+    j = await call(`/models/${encodeURIComponent(model)}:generateContent`, cfg, th ? { ...body, generationConfig: { ...body.generationConfig, thinkingConfig: th } } : body);
   } catch (e) {
     // 생각 설정을 지원하지 않는 모델이면 설정 없이 한 번 더
-    if (th && e.status === 400 && /think/i.test(e.apiMsg)) j = await call(`/models/${encodeURIComponent(model)}:generateContent`, key, body);
+    if (th && e.status === 400 && /think/i.test(e.apiMsg)) j = await call(`/models/${encodeURIComponent(model)}:generateContent`, cfg, body);
     else throw e;
   }
   const cand = j.candidates?.[0];
@@ -188,28 +225,25 @@ async function generate(key, model, sys, history, maxTokens = 1024, temperature 
 }
 
 async function viaGemini(settings, sys, history, temp) {
-  let model = await resolveModel(settings);
-  try { return await generate(settings.key, model, sys, history, 1024, temp); }
-  catch (e) {
-    // 자동으로 고른 모델이 사라졌으면 다시 골라서 한 번 더
-    if (!settings.model && (e.status === 404 || e.status === 400 && /model/i.test(e.apiMsg))) {
-      saveAiSettings({ ...settings, resolved: '' });
-      model = await resolveModel({ ...settings, resolved: '' });
-      return generate(settings.key, model, sys, history, 1024, temp);
-    }
-    throw e;
-  }
+  const r = await generateAny(settings, sys, history, 1024, temp);
+  if (!settings.model && r.model !== settings.resolved) saveAiSettings({ ...aiSettings(), resolved: r.model });
+  return r.text;
 }
 
 // 실패 이유를 알기 쉽게
 export function explainAiError(e) {
   const m = (e.apiMsg || e.message || '').toLowerCase();
-  if (e.status === 0) return '인터넷 연결이 없거나 브라우저(광고 차단 확장 프로그램 등)가 요청을 막았어요.';
+  if (e.status === 0) return '인터넷 연결이 없거나, 중계 서버 주소가 틀렸거나, 브라우저(광고 차단 확장 프로그램 등)가 요청을 막았어요.';
+  if (e.reason === 'APP_TOKEN') return '앱 비밀번호가 중계 서버의 APP_TOKEN 과 달라요. 두 값을 똑같이 맞춰 주세요.';
+  if (e.reason === 'ORIGIN_NOT_ALLOWED') return '중계 서버의 ALLOWED_ORIGINS 에 지금 사이트 주소가 없어요. 예: https://아이디.github.io';
+  if (e.reason === 'NO_KEY') return '중계 서버에 GEMINI_API_KEY 비밀값이 아직 없어요.';
+  if (e.reason === 'DAILY_LIMIT') return '오늘 대화 한도(DAILY_LIMIT)를 다 썼어요. 내일 다시 이야기할 수 있어요.';
   if (/api key not valid|api_key_invalid/.test(m) || e.reason === 'API_KEY_INVALID') return '키가 올바르지 않아요. AI Studio 에서 키를 다시 복사해 주세요 (앞뒤 공백 주의).';
   if (e.status === 403 && /referer|referrer/.test(m)) return '키의 "웹사이트 제한"에 지금 주소가 빠져 있어요. Google Cloud 콘솔에서 이 사이트 주소를 추가해 주세요.';
   if (e.status === 403) return '이 키로는 Gemini API 를 쓸 수 없어요. AI Studio 에서 만든 키인지, API 제한에 "Generative Language API"가 포함됐는지 확인해 주세요.';
   if (e.status === 404) return '모델을 찾을 수 없어요. 모델 칸을 비워 두면 쓸 수 있는 모델을 자동으로 골라요.';
-  if (e.status === 429) return '무료 사용량을 잠시 넘었어요. 조금 뒤에 다시 시도해 주세요.';
+  if (e.status === 429) return '키는 정상이에요. 다만 무료 사용량을 잠시 넘었어요. 조금 뒤에 다시 시도해 주세요.';
+  if ([500, 503, 504].includes(e.status)) return '키는 정상이에요. 다만 구글 모델이 지금 붐벼서 대답을 못 했어요 (구글 쪽 일시적 문제). 잠시 뒤 다시 누르면 돼요.';
   if (e.status === 400 && /location|region|country/.test(m)) return '이 지역에서는 이 모델을 쓸 수 없대요. 다른 모델을 골라 보세요.';
   if (e.status === 200) return 'AI 가 빈 답을 보냈어요: ' + e.apiMsg;
   return `알 수 없는 오류 (${e.status}) ${e.apiMsg}`;
@@ -251,7 +285,7 @@ export async function askNeuru(userText, ctx) {
   const sys = systemPrompt(ctx);
   const settings = aiSettings();
   let reply = null, via = 'offline';
-  if (settings.key) { try { reply = await viaGemini(settings, sys, history, PERSONA[stageOf(ctx.grow)].temp); via = 'gemini'; } catch (e) { console.warn(e); } }
+  if (hasCred(settings)) { try { reply = await viaGemini(settings, sys, history, PERSONA[stageOf(ctx.grow)].temp); via = 'gemini'; } catch (e) { console.warn(e); } }
   if (!reply) { try { reply = await viaPublic(sys, history); via = 'public'; } catch (e) { console.warn(e); } }
   if (!reply) reply = offline(userText, ctx.grow);
   log.push({ role: 'neuru', text: reply, at: Date.now(), via });
@@ -259,11 +293,22 @@ export async function askNeuru(userText, ctx) {
   return { reply, via };
 }
 
-export async function testAi(settings, ctx) {
-  const s2 = { ...settings, resolved: '' };
-  const model = await resolveModel(s2);
+// 연결 확인: ① 키 확인(모델 목록 받기) → ② 실제로 대답 받아 보기
+export async function testAi(settings, ctx, log = () => {}) {
+  const fresh = { ...settings, resolved: '', models: [] };
+  log(fresh.mode === 'proxy' ? '① 중계 서버·키 확인 중…' : '① 키 확인 중…');
+  const names = await listModels(fresh);                   // 여기서 실패하면 키(또는 중계 서버 설정) 문제
+  const list = rankModels(names);
+  saveAiSettings({ ...fresh, models: list, keyOkAt: Date.now(), okAt: 0, v: 2 });
+  log(`① ${fresh.mode === 'proxy' ? '중계 서버·키' : '키'} 확인: 정상 ✓ (대화 모델 ${list.length}개)`);
   const st = stageOf(ctx?.grow ?? 0);
-  const text = await generate(settings.key, model, systemPrompt(ctx || { grow: 0, day: 0, daysLeft: 21, clock: '', weather: '' }), [{ role: 'me', text: '안녕?' }], 512, PERSONA[st].temp);
-  saveAiSettings({ ...settings, resolved: settings.model ? '' : model, okAt: Date.now(), v: 2 });
-  return { text, model };
+  try {
+    const r = await generateAny({ ...fresh, models: list }, systemPrompt(ctx), [{ role: 'me', text: '안녕?' }], 512, PERSONA[st].temp,
+      (m, a) => log(`② ${m} 에게 말 거는 중${a ? ' (다시 시도)' : ''}…`));
+    saveAiSettings({ ...fresh, models: list, resolved: fresh.model ? '' : r.model, keyOkAt: Date.now(), okAt: Date.now(), v: 2 });
+    return { ...r, keyOk: true };
+  } catch (e) {
+    e.keyOk = true;
+    throw e;
+  }
 }
