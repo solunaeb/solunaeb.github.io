@@ -54,3 +54,20 @@ export async function getAudioUrl(day) {
   audioCache.set(day, url);
   return url;
 }
+
+// ── 사진 (서랍 / 액자) ──
+const photoCache = new Map();
+export function photos(group) {
+  const p = manifest?.photos;
+  if (!p) return group === 'frame' ? null : [];
+  return p[group] ?? (group === 'frame' ? null : []);
+}
+export async function getPhotoUrl(entry) {
+  if (!entry) return null;
+  if (photoCache.has(entry.src)) return photoCache.get(entry.src);
+  const buf = new Uint8Array(await (await fetch(entry.src)).arrayBuffer());
+  const plain = await decrypt('photo:' + entry.src, buf.slice(0, 12), buf.slice(12));
+  const url = URL.createObjectURL(new Blob([plain], { type: entry.type || 'image/jpeg' }));
+  photoCache.set(entry.src, url);
+  return url;
+}

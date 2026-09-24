@@ -209,9 +209,6 @@ export function getBackground() {
   drawShelf(g, 356, 0, 28, 146, rnd, 'right');
   drawFireplaceFrame(g);
   drawRug(g);
-  // 창턱 작은 화분 (소파 뒤)
-  R(g, 144, 124, 10, 7, PAL.potDk); R(g, 145, 124, 8, 6, PAL.pot);
-  leaves(g, 149, 123, 9, 5);
   drawSofa(g);
   drawDesk(g);
   drawChair(g);
@@ -332,10 +329,6 @@ function drawSofa(g) {
   }
   // 다리
   for (const lx of [x + 4, x + w - 10]) R(g, lx, 190, 6, 6, PAL.woodDk);
-  // 쿠션
-  R(g, 150, 132, 20, 18, PAL.pillowDk); R(g, 151, 132, 18, 16, PAL.pillow);
-  for (let i = 0; i < 6; i++) R(g, 153 + i * 3, 136 + (i % 2) * 4, 2, 1, PAL.pillowDk);
-  R(g, 134, 136, 16, 15, PAL.pillowGDk); R(g, 135, 136, 14, 13, PAL.pillowG);
   // 바닥 그림자
   dither(g, x + 2, 196, w - 4, 2, 'rgba(0,0,0,0.4)');
 }
@@ -384,14 +377,13 @@ function drawChair(g) {
 }
 
 function drawPlants(g) {
-  // 왼쪽 바닥 화분
-  R(g, 6, 196, 16, 14, PAL.potDk); R(g, 7, 196, 14, 12, PAL.pot); R(g, 5, 194, 18, 3, PAL.potDk);
-  leaves(g, 14, 194, 18, 11);
-  // 매달린 화분
+  // 왼쪽 바닥 화분 (장미)
+  R(g, 6, 196, 16, 14, PAL.potDk); R(g, 7, 196, 14, 12, PAL.pot); R(g, 5, 194, 18, 3, PAL.potDk); R(g, 6, 194, 16, 1, '#b86a40');
+  // 매달린 화분 (리시안셔스)
   R(g, 342, 3, 1, 22, '#8a7a5a'); R(g, 352, 3, 1, 22, '#8a7a5a');
-  R(g, 340, 24, 15, 9, PAL.potDk); R(g, 341, 24, 13, 7, PAL.pot);
-  leaves(g, 347, 24, 10, 7);
-  for (let i = 0; i < 4; i++) { const vx = 340 + i * 5; for (let vy = 32; vy < 44 + i * 9; vy += 3) R(g, vx + ((vy / 3) % 2), vy, 2, 2, vy % 2 ? PAL.plant : PAL.plantLt); }
+  R(g, 340, 24, 15, 9, PAL.potDk); R(g, 341, 24, 13, 7, PAL.pot); R(g, 340, 24, 15, 1, '#b86a40');
+  // 벽난로 선반 화분 (맨드라미)
+  R(g, 361, 137, 12, 7, PAL.potDk); R(g, 362, 137, 10, 6, PAL.pot); R(g, 360, 136, 14, 2, PAL.potDk); R(g, 361, 136, 12, 1, '#b86a40');
 }
 function leaves(g, cx, by, spread, n) {
   const rnd = mulberry(cx * 31 + by);
@@ -501,18 +493,22 @@ export function drawBubble(g, cx, cy, kind) {
   else if (kind === 'note') { R(g, cx + 1, cy - 3, 1, 5, '#2b2622'); R(g, cx - 1, cy + 1, 2, 2, '#2b2622'); R(g, cx + 2, cy - 3, 2, 1, '#2b2622'); }
 }
 
-// 팩스
-export function drawFax(g, printing, t) {
+// 팩스 (위쪽 틈에서 LP 가 밀려 나옴)
+export const FAX_SLOT_Y = 116;
+export function drawFax(g, ejecting, t) {
   const x = 271, y = 115;
+  // 윗면 (경사진 덮개 + 음반 틈)
+  R(g, x + 2, y - 2, 24, 6, '#b5ae9e'); R(g, x + 2, y - 2, 24, 1, '#d4cdbd');
+  R(g, x + 5, FAX_SLOT_Y, 18, 2, '#1c1a18'); R(g, x + 5, FAX_SLOT_Y + 2, 18, 1, '#8f897b');
+  if (ejecting) R(g, x + 6, FAX_SLOT_Y, 16, 1, Math.floor(t / 90) % 2 ? '#fff2b0' : '#c9a24a');
+  // 본체
   R(g, x, y + 4, 28, 13, '#c9c2b2'); R(g, x, y + 4, 28, 1, '#e4ddcc'); R(g, x, y + 16, 28, 1, '#8f897b');
-  R(g, x + 4, y - 2, 20, 7, '#b5ae9e'); // 급지대
-  const paperH = printing ? 6 + Math.floor((t / 120) % 6) : 7;
-  R(g, x + 7, y - 2 - paperH + 7, 14, paperH, PAL.paper);
-  R(g, x + 9, y - paperH + 7, 8, 1, '#b8ad96');
-  R(g, x + 2, y + 6, 8, 3, '#3a4e44'); R(g, x + 3, y + 7, 6, 1, '#7fd6a0');
+  R(g, x + 2, y + 6, 9, 4, '#3a4e44'); R(g, x + 3, y + 7, 7, 2, ejecting ? '#b8ffd0' : '#7fd6a0');
   for (let r = 0; r < 3; r++) for (let k = 0; k < 4; k++) R(g, x + 13 + k * 3, y + 7 + r * 3, 2, 2, '#7a7466');
   R(g, x - 4, y + 5, 5, 10, '#b5ae9e'); R(g, x - 4, y + 5, 5, 2, '#8f897b'); R(g, x - 4, y + 13, 5, 2, '#8f897b');
-  R(g, x + 24, y + 13, 2, 1, printing ? (Math.floor(t / 300) % 2 ? '#7fd6a0' : '#2a5a3a') : '#2a5a3a');
+  const blink = ejecting ? Math.floor(t / 150) % 2 : 0;
+  R(g, x + 3, y + 12, 2, 1, blink ? '#ff6a5a' : '#6a2a24');
+  R(g, x + 6, y + 12, 2, 1, blink ? '#2a5a3a' : '#7fd6a0');
 }
 
 // 턴테이블
@@ -655,7 +651,7 @@ export function drawFestive(g, t) {
     R(g, x, 88, 2, 2, on ? cols[(x / 10) % cols.length | 0] : '#5a4a3a');
   }
   // 케이크 (러그 위)
-  const cx = 160, cy = 196;
+  const cx = 290, cy = 196;
   R(g, cx - 9, cy, 19, 8, '#f3e6d2'); R(g, cx - 9, cy, 19, 2, '#f6a8c0'); R(g, cx - 9, cy + 4, 19, 1, '#e88aa8');
   R(g, cx - 11, cy + 8, 23, 2, '#d8d2c8');
   for (let i = 0; i < 3; i++) { R(g, cx - 5 + i * 5, cy - 5, 1, 5, ['#5ab0e0', '#f2c14e', '#e05a5a'][i]); R(g, cx - 5 + i * 5, cy - 7 - (Math.floor(t / 150 + i) % 2), 1, 2, '#ffd35a'); }

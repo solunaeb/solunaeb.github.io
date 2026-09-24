@@ -5,6 +5,7 @@ import { drawDisc } from './scene.js';
 import { kst, letterUnlockAt } from './time.js';
 import { TOTAL_DAYS, FIRST_LETTER_AT, END_AT, TEST_PASSWORD_HASH, VAPID_PUBLIC_KEY, CAT_NAME } from './config.js';
 import { WEATHER_KINDS, WEATHER_LABEL } from './weather.js';
+import { photos, getPhotoUrl } from './content.js';
 
 const dateOf = (day) => { const k = kst(letterUnlockAt(day)); return { mo: k.mo, d: k.d }; };
 const fmtDate = (day) => { const { mo, d } = dateOf(day); return `${mo}월 ${d}일`; };
@@ -235,8 +236,16 @@ export function openTest(app) {
     ws.addEventListener('change', () => app.setWeather(ws.value));
     sc.append(h('div', { class: 'set-sec' }, h('h3', {}, '날씨 고정'), ws));
 
+    // 화분
+    const ps = h('input', { type: 'range', min: 0, max: 21, value: app.store.plants.rose.n, 'aria-label': '화분 성장 단계' });
+    const pl = h('span', { class: 'pill' }, `물 ${ps.value}번`);
+    ps.addEventListener('input', () => { pl.textContent = `물 ${ps.value}번`; app.setPlantStage(+ps.value); });
+    sc.append(h('div', { class: 'set-sec' }, h('h3', {}, '화분 성장 (세 화분 모두)'), h('div', { class: 'row' }, ps, pl),
+      h('div', { class: 'row' }, h('button', { class: 'pix-btn small', onclick: () => { app.resetWaterToday(); toast('오늘 물 준 기록을 지웠어요'); } }, '오늘 물 주기 다시 하기'))));
+
     // 기타
     sc.append(h('div', { class: 'set-sec' }, h('h3', {}, '기타'),
+      h('div', { class: 'row' }, h('button', { class: 'pix-btn small', onclick: () => { app.remess(); toast('방을 새로 어질렀어요'); } }, '방 다시 어지르기')),
       h('div', { class: 'row' },
         h('button', { class: 'pix-btn small', onclick: () => app.testNotify() }, '알림 테스트'),
         h('button', { class: 'pix-btn small', onclick: () => { closeModal(true); app.celebrate(true); } }, '축하 연출 보기'),
@@ -287,4 +296,82 @@ export async function showCelebration(app, onClose) {
   const btn = document.getElementById('cel-close');
   btn.onclick = () => { wrap.hidden = true; onClose?.(); };
   btn.focus({ preventScroll: true });
+}
+
+// ── 밤 11시: 편지 도착 팝업 ──
+export function showLetterArrived(app, day) {
+  openModal((root) => {
+    root.append(h('h2', { id: 'sheet-title' }, '편지가 도착했어요'));
+    root.append(h('ul', { class: 'notice-list' },
+      h('li', {}, h('span', { class: 'em', 'aria-hidden': 'true' }, '✉️'), h('span', {}, `Day ${day} 편지가 타자기에 도착했어요.`)),
+      h('li', {}, h('span', { class: 'em', 'aria-hidden': 'true' }, '💿'), h('span', {}, `팩스에서 LP ${day}가 나오고 있어요.`))));
+    root.append(h('div', { class: 'actions' },
+      h('button', { class: 'pix-btn', onclick: () => closeModal() }, '나중에'),
+      h('button', { class: 'pix-btn big', onclick: () => { closeModal(true); openLetter(app, day, { typing: true }); } }, '지금 읽기')));
+  });
+}
+
+// ── 사진 넘겨 보기 ──
+function photoViewer(list, emptyText) {
+  const wrap = h('div', { class: 'viewer' });
+  if (!list.length) { wrap.append(h('p', { class: 'sub empty' }, emptyText)); return wrap; }
+  let i = 0;
+  const img = h('img', { alt: '' });
+  const cap = h('p', { class: 'cap' });
+  const count = h('span', { class: 'count' });
+  const prev = h('button', { class: 'pix-btn small', 'aria-label': '이전 사진' }, '◀');
+  const next = h('button', { class: 'pix-btn small', 'aria-label': '다음 사진' }, '▶');
+  const show = async () => {
+    const e = list[i];
+    count.textContent = `${i + 1} / ${list.length}`;
+    cap.textContent = e.caption || '';
+    img.style.opacity = '0.3';
+    try { img.src = await getPhotoUrl(e); img.alt = e.caption || `사진 ${i + 1}`; } catch { cap.textContent = '사진을 여는 중에 문제가 생겼어요.'; }
+    img.style.opacity = '1';
+    prev.disabled = list.length < 2; next.disabled = list.length < 2;
+  };
+  const go = (d) => { i = (i + d + list.length) % list.length; sfx.click(); show(); };
+  prev.onclick = () => go(-1); next.onclick = () => go(1);
+  let sx = null;
+  img.addEventListener('pointerdown', e => { sx = e.clientX; });
+  img.addEventListener('pointerup', e => { if (sx !== null && Math.abs(e.clientX - sx) > 40) go(e.clientX < sx ? 1 : -1); sx = null; });
+  wrap.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') go(-1); if (e.key === 'ArrowRight') go(1); });
+  wrap.tabIndex = 0;
+  wrap.append(h('div', { class: 'photo' }, img), cap, h('div', { class: 'row nav' }, prev, count, next));
+  show();
+  return wrap;
+}
+
+const DRAWER_INFO = [
+  { title: '첫 번째 서랍 · 사진', group: 'album', empty: '아직 사진이 없어요.' },
+  { title: '두 번째 서랍 · 횃불', group: 'torch', empty: '횃불 사진이 아직 없어요.' },
+  { title: '세 번째 서랍 · 까르보 불닭볶음면', group: 'buldak', empty: '사진이 아직 없어요.' },
+];
+
+export function openDrawer(app, idx, onClose) {
+  const info = DRAWER_INFO[idx];
+  openModal((root) => {
+    root.append(h('h2', { id: 'sheet-title' }, info.title));
+    root.append(photoViewer(photos(info.group), info.empty));
+    const actions = h('div', { class: 'actions' });
+    if (idx === 1) {
+      const hung = app.store.torch.hung;
+      actions.append(h('button', { class: 'pix-btn big', onclick: () => { closeModal(); app.setTorch(!hung); } }, hung ? '횃불을 서랍에 넣기' : '횃불 꺼내서 벽에 걸기'));
+    }
+    if (idx === 2) {
+      const cooking = app.ramenActive();
+      actions.append(h('button', { class: 'pix-btn big', disabled: cooking, onclick: () => { closeModal(); app.cookRamen(); } }, cooking ? '이미 끓여 뒀어요' : '한 봉지 끓여 먹기'));
+    }
+    if (actions.childNodes.length) root.append(actions);
+    root.querySelector('.viewer')?.focus({ preventScroll: true });
+  }, onClose);
+}
+
+export async function openFrame(app) {
+  const f = photos('frame');
+  openModal((root) => {
+    root.append(h('h2', { id: 'sheet-title' }, '액자'));
+    if (!f) { root.append(h('p', { class: 'sub' }, '언젠가 같이 가 보고 싶은 풍경이에요.')); return; }
+    root.append(photoViewer([f], ''));
+  });
 }

@@ -5,7 +5,10 @@ const defaults = () => ({
   firstVisit: 0,
   read: [],            // 읽은 편지 Day 번호
   played: [],          // 한 번이라도 튼 LP Day 번호
-  clean: { messAt: -1, done: [] }, // 현재 어질러짐(messAt)에 대해 치운 항목
+  clean: { messAt: -1, items: [], done: [] }, // 현재 어질러짐(messAt)에 대해 어질러진 곳 / 치운 곳
+  plants: { rose: { n: 0, last: '' }, lisianthus: { n: 0, last: '' }, celosia: { n: 0, last: '' } }, // 물 준 횟수, 마지막 날짜
+  torch: { hung: false, lit: false },
+  ramen: { until: 0, bites: 0 },
   fire: false,
   lampFloor: true,
   lampWall: true,

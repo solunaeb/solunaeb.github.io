@@ -81,6 +81,12 @@ export const sfx = {
     n.forEach((f, i) => tone(f / 2, i === 5 ? 0.8 : 0.16, { type: 'triangle', vol: 0.1, at: i * 0.14 }));
   },
   firework() { tone(300, 0.5, { type: 'sine', vol: 0.04, slideTo: 1200 }); noise(0.7, { vol: 0.2, at: 0.5, filter: 'lowpass', freq: 1800, sweepTo: 200, attack: 0.01 }); },
+  water() { noise(1.0, { vol: 0.16, filter: 'highpass', freq: 2500, attack: 0.15 }); [0.2, 0.45, 0.7].forEach(a => tone(1400 + Math.random() * 600, 0.05, { type: 'sine', vol: 0.05, at: a })); },
+  scoop() { noise(0.25, { vol: 0.2, freq: 900, q: 1 }); noise(0.3, { vol: 0.15, freq: 700, at: 0.4, q: 1 }); },
+  whirr() { tone(220, 1.4, { type: 'square', vol: 0.025, slideTo: 330 }); noise(1.4, { vol: 0.05, freq: 2000, q: 6, attack: 0.1 }); },
+  drawer() { noise(0.25, { vol: 0.2, filter: 'lowpass', freq: 500, attack: 0.02 }); tone(140, 0.1, { type: 'square', vol: 0.05, at: 0.2 }); },
+  ignite() { noise(0.5, { vol: 0.25, freq: 600, sweepTo: 2400, attack: 0.02 }); },
+  slurp() { noise(0.35, { vol: 0.18, freq: 1800, sweepTo: 600, q: 2, attack: 0.05 }); },
   thump() { tone(90, 0.15, { type: 'sine', vol: 0.25, slideTo: 50 }); },
 };
 

@@ -2,7 +2,8 @@
 import { CAT_NAME, END_AT, FIRST_LETTER_AT, TOTAL_DAYS } from './config.js';
 import * as T from './time.js';
 import { store, persist, resetProgress, addUnique } from './store.js';
-import { loadContent, getLetter, getFinale } from './content.js';
+import { loadContent, getLetter, getFinale, photos, getPhotoUrl } from './content.js';
+import * as R2 from './room2.js';
 import { initAudio, sfx, purr, setAmbience, setMuted, playDay as audioPlay, stopMusic as audioStop, nowPlaying as audioNow } from './audio.js';
 import * as S from './scene.js';
 import { Cat } from './cat.js';
@@ -63,19 +64,18 @@ window.addEventListener('resize', layout);
 const now = () => T.now();
 const ended = () => festiveForced || T.isEnded(now());
 const unlocked = () => (ended() ? TOTAL_DAYS : T.unlockedCount(now()));
-const CLEAN_ITEMS = ['blanket', 'trash', 'stain', 'pets'];
-
 function currentMess() {
   if (ended()) return 0;
   const m = T.latestMessAt(now());
-  if (m && store.clean.messAt !== m) { store.clean = { messAt: m, done: [] }; }
+  if (m && (store.clean.messAt !== m || !Array.isArray(store.clean.items))) store.clean = { messAt: m, items: R2.pickMess(m), done: [] };
   return m;
 }
 const cleaning = [];
 function isDirty(item) {
   const m = currentMess();
-  return !!m && !store.clean.done.includes(item);
+  return !!m && store.clean.items.includes(item) && !store.clean.done.includes(item);
 }
+const messLeft = () => (currentMess() ? store.clean.items.filter(i => !store.clean.done.includes(i)).length : 0);
 function faxDiscDay() {
   if (ended()) return 0;
   const u = unlocked();
@@ -120,7 +120,7 @@ const app = {
   onLetterStored(day) {
     FX.spawnSparkles(260, 118, 10, 8);
     sfx.sparkle();
-    if (faxDiscDay() === day) { printingUntil = performance.now() + 2600; toast(`팩스에서 LP ${day}가 나왔어요. 턴테이블에 올려 보세요.`); }
+    if (faxDiscDay() === day) toast(`팩스 위에 LP ${day}가 올라와 있어요. 턴테이블에 올려 보세요.`);
   },
   toggleSound() { initAudio(); setMuted(store.sound); syncSoundBtn(); },
   permission: N.permission,
@@ -131,14 +131,28 @@ const app = {
   timeStatus: T.timeStatus,
   build: () => manifest?.build || '-',
   kstDayStart: T.kstDayStart,
-  setTestTime(t) { T.setTestTime(t); lastEventT = now(); festiveForced = false; syncTestFlag(); },
+  setTestTime(t) {
+    T.setTestTime(t); lastEventT = now(); festiveForced = false;
+    // 시간을 되돌리면 그 시각에 아직 오지 않은 편지·LP 기록은 지움
+    const u = T.isEnded(t) ? TOTAL_DAYS : T.unlockedCount(t);
+    store.read = store.read.filter(d => d <= u);
+    store.played = store.played.filter(d => d <= u);
+    if (!T.isEnded(t)) store.celebrated = false;
+    ejectDay = 0; syncTestFlag();
+  },
   clearTestTime() { T.clearTestTime(); lastEventT = now(); festiveForced = false; syncTestFlag(); },
   weatherOverride: () => weatherOverride,
   setWeather(k) { weatherOverride = k || null; setWeatherOverride(weatherOverride); },
   testNotify: async () => { await N.requestPermission(); if (!(await N.testNotify())) toast('알림 권한이 없어요.'); },
   celebrate: (force) => celebrate(force),
   replayGreeting: () => greet(),
-  resetProgress() { resetProgress(); stopMusic(); },
+  resetProgress() { resetProgress(); stopMusic(); ejectDay = 0; },
+  setTorch(hung) { store.torch = { hung, lit: hung }; if (hung) { sfx.ignite(); FX.spawnSparkles(118, 50, 8, 8); toast('횃불을 벽에 걸었어요. 누르면 켜고 끌 수 있어요.'); } else toast('횃불을 서랍에 넣었어요.'); },
+  ramenActive: () => store.ramen.until > now() && store.ramen.bites < 3,
+  cookRamen() { store.ramen = { until: now() + 20 * 60 * 1000, bites: 0 }; sfx.whoosh(); FX.spawnPuff(R2.RAMEN_AT[0], R2.RAMEN_AT[1], 8, '#ffffff'); toast('보글보글… 까르보 불닭 한 그릇 완성!'); if (!cat.busy) { cat.goToFloor(R2.RAMEN_AT[0] + 22, 'sit'); cat.hold(10000); } },
+  setPlantStage(n) { for (const k of Object.keys(R2.PLANTS)) store.plants[k] = { n, last: store.plants[k].last }; persist(); },
+  resetWaterToday() { for (const k of Object.keys(R2.PLANTS)) store.plants[k].last = ''; persist(); },
+  remess() { const m = currentMess(); if (m) { store.clean = { messAt: m, items: R2.pickMess(m + Math.floor(Math.random() * 1e6) * 60000), done: [] }; } else toast('지금은 청소 시간이 아니에요'); },
   exitTest() {
     T.clearTestTime(); setWeatherOverride(null); weatherOverride = null; festiveForced = false;
     sessionStorage.removeItem('neuru.testok'); testEnabled = false;
@@ -152,15 +166,15 @@ const app = {
 function startClean(item) {
   if (cleaning.some(c => c.item === item)) return;
   initAudio();
-  const dur = { blanket: 800, trash: 1400, stain: 1100, pets: 1200 }[item];
-  cleaning.push({ item, start: performance.now(), dur });
-  ({ blanket: sfx.whoosh, trash: sfx.vacuum, stain: sfx.wipe, pets: sfx.wipe })[item]();
+  const def = R2.MESS[item];
+  cleaning.push({ item, start: performance.now(), dur: def.dur });
+  sfx[def.sfx]?.();
 }
 function finishClean(c) {
   if (!store.clean.done.includes(c.item)) { store.clean.done.push(c.item); persist(); }
-  const pos = { blanket: [60, 140], trash: [210, 200], stain: [280, 204], pets: [60, 200] }[c.item];
-  FX.spawnSparkles(pos[0], pos[1], 10, 12); sfx.sparkle();
-  if (CLEAN_ITEMS.every(i => store.clean.done.includes(i))) {
+  const pos = R2.MESS[c.item].pos;
+  FX.spawnSparkles(pos[0], pos[1] - 4, 10, 12); sfx.sparkle();
+  if (messLeft() === 0) {
     setTimeout(() => {
       banner('방 청소 완료!'); sfx.fanfare(); catCelebrate(2200);
       const b = cat.box; FX.spawnHearts(b.x + b.w / 2, b.y, 6);
@@ -204,16 +218,19 @@ function greet(onDone) {
 // ────────── 물건 판정 ──────────
 function hitTest(x, y) {
   if (discDrag) return 'disc';
-  if (cat.hit(x, y)) return 'cat';
+  const cb = cat.box;
+  const onCatFeet = y > cb.y + cb.h * 0.62;
+  if (cat.hit(x, y) && !(onCatFeet && R2.MESS_IDS.some(id => isDirty(id) && R2.MESS[id].hit.some(hb => x >= hb[0] && x < hb[0] + hb[2] && y >= hb[1] && y < hb[1] + hb[3])))) return 'cat';
   const inR = (x0, y0, w, h) => x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
   const dd = faxDiscDay();
-  if (dd && !discFly && inR(274, 78 + discBob() , 22, 22)) return 'disc';
-  if (isDirty('trash')) for (const it of S.trashItems(store.clean.messAt / 1000 | 0)) if (Math.abs(x - it.x) < 8 && Math.abs(y - it.y) < 6) return 'trash';
-  if (isDirty('stain') && inR(266, 200, 28, 12)) return 'stain';
-  if (isDirty('pets') && inR(30, 186, 66, 28)) return 'pets';
+  if (dd && !discFly && performance.now() > ejectUntil && inR(274, 78 + discBob(), 22, 22)) return 'disc';
+  for (const id of R2.MESS_IDS) if (isDirty(id) && R2.MESS[id].hit.some(hb => inR(...hb))) return 'mess:' + id;
+  if (app.ramenActive() && inR(R2.RAMEN_AT[0] - 10, R2.RAMEN_AT[1] - 8, 20, 18)) return 'ramen';
   if (inR(30, 186, 66, 28)) return 'pets-clean';
-  if (isDirty('blanket') && (inR(106, 140, 56, 20) || inR(136, 152, 42, 46))) return 'blanket';
-  if (ended() && inR(146, 186, 28, 22)) return 'cake';
+  if (ended() && inR(276, 186, 28, 22)) return 'cake';
+  for (const [k, pl] of Object.entries(R2.PLANTS)) if (inR(...pl.hit)) return 'plant:' + k;
+  for (let i = 0; i < 3; i++) if (inR(R2.DRAWERS[i][0], R2.DRAWERS[i][1], 32, 14)) return 'drawer:' + i;
+  if (store.torch.hung && inR(R2.TORCH_AT[0] - 6, R2.TORCH_AT[1] - 6, 12, 26)) return 'torch';
   if (inR(218, 98, 36, 34)) return 'typewriter';
   if (inR(250, 114, 20, 19)) return 'box';
   if (inR(265, 104, 36, 29)) return 'fax';
@@ -221,7 +238,6 @@ function hitTest(x, y) {
   if (inR(334, 146, 50, 70)) return 'fire';
   if (inR(24, 60, 30, 26) || inR(34, 84, 8, 88)) return 'lampFloor';
   if (inR(314, 32, 20, 30)) return 'lampWall';
-  if (inR(2, 176, 26, 38) || inR(138, 104, 22, 27) || inR(334, 16, 24, 50)) return 'plant';
   if (inR(68, 38, 38, 32)) return 'picture';
   if (inR(0, 0, 30, 176) || inR(356, 0, 28, 144)) return 'books';
   if (inR(S.WIN.x, S.WIN.y, S.WIN.w, S.WIN.h - (x < 186 ? 12 : 0))) return 'window';
@@ -241,11 +257,57 @@ const BOOK_LINES = [
   '제목만 봐도 설레는 책이에요. 다음에 같이 읽어요.',
 ];
 
-let printingUntil = 0;
+let drawerAnim = null;
+let watering = null;
+const todayKey = () => { const k = T.kst(now()); return `${k.y}${String(k.mo).padStart(2, '0')}${String(k.d).padStart(2, '0')}`; };
+const needsWater = (id) => store.plants[id].n < 21 && store.plants[id].last !== todayKey();
+function waterPlant(id) {
+  const pl = store.plants[id], name = R2.PLANTS[id].name;
+  if (watering) return;
+  if (pl.n >= 21) { FX.spawnSparkles(R2.PLANTS[id].drop[0], R2.PLANTS[id].drop[1] + 10, 6, 10); toast(`${name}가 활짝 피었어요. 21번의 물이 꽃이 되었어요.`); return; }
+  if (pl.last === todayKey()) { toast(`${name}에는 오늘 이미 물을 줬어요. (${pl.n}/21)`); return; }
+  watering = { id, start: performance.now() };
+  sfx.water();
+  setTimeout(() => {
+    store.plants[id] = { n: pl.n + 1, last: todayKey() }; persist();
+    const [dx, dy] = R2.PLANTS[id].drop;
+    FX.spawnSparkles(dx, dy + 12, 8, 10);
+    if (pl.n + 1 >= 21) { sfx.fanfare(); banner(`${name} 만개!`); FX.spawnHearts(dx, dy + 6, 4); }
+    else toast(`${name}에 물을 줬어요. (${pl.n + 1}/21)`);
+    watering = null;
+  }, 1300);
+}
+let ejectDay = 0, ejectStart = 0, ejectUntil = 0;
+const EJECT_MS = 2200;
+let framePix = null, frameSrc = null;
+async function loadFramePixels() {
+  const f = photos('frame');
+  if (!f || frameSrc === f.src) return;
+  frameSrc = f.src;
+  try {
+    const url = await getPhotoUrl(f);
+    const img = new Image(); img.src = url; await img.decode();
+    // 26×18 로 줄이고 색을 단순화해 도트 느낌으로
+    const c = document.createElement('canvas'); c.width = 26; c.height = 18;
+    const cg = c.getContext('2d'); cg.imageSmoothingEnabled = true; cg.imageSmoothingQuality = 'high';
+    const r = Math.max(26 / img.width, 18 / img.height), w = img.width * r, h = img.height * r;
+    cg.drawImage(img, (26 - w) / 2, (18 - h) / 2, w, h);
+    const d = cg.getImageData(0, 0, 26, 18);
+    for (let i = 0; i < d.data.length; i += 4) for (let k = 0; k < 3; k++) d.data[i + k] = Math.min(255, Math.round(d.data[i + k] / 32) * 32 + 8);
+    cg.putImageData(d, 0, 0);
+    framePix = c;
+  } catch { framePix = null; }
+}
 function tap(x, y) {
   initAudio();
   const k = hitTest(x, y);
   const beforeStart = !ended() && now() < FIRST_LETTER_AT;
+  if (k?.startsWith('mess:')) { startClean(k.slice(5)); return; }
+  if (k?.startsWith('plant:')) { waterPlant(k.slice(6)); return; }
+  if (k?.startsWith('drawer:')) {
+    const i = +k.slice(7); drawerAnim = { i, start: performance.now() }; sfx.drawer();
+    setTimeout(() => P.openDrawer(app, i), 260); return;
+  }
   switch (k) {
     case 'cat': petCat(); break;
     case 'typewriter': {
@@ -257,11 +319,12 @@ function tap(x, y) {
       break;
     }
     case 'box': sfx.click(); P.openArchive(app); break;
-    case 'disc': startDiscFly(faxDiscDay(), 284, 88 + discBob()); break;
+    case 'disc': startDiscFly(faxDiscDay(), 285, 88 + discBob()); break;
     case 'fax':
       sfx.click();
-      if (faxDiscDay()) startDiscFly(faxDiscDay(), 284, 88 + discBob());
+      if (faxDiscDay() && ejectUntil < performance.now()) startDiscFly(faxDiscDay(), 285, 88 + discBob());
       else if (beforeStart) toast('10월 29일 밤 11시부터 음반이 도착해요.');
+      else if (ejectUntil > performance.now()) toast('LP가 올라오고 있어요!');
       else toast('새 음반은 매일 밤 11시에 팩스로 도착해요.');
       break;
     case 'turntable': sfx.click(); P.openCrate(app); break;
@@ -271,11 +334,17 @@ function tap(x, y) {
       break;
     case 'lampFloor': store.lampFloor = !store.lampFloor; sfx.click(); break;
     case 'lampWall': store.lampWall = !store.lampWall; sfx.click(); break;
-    case 'blanket': case 'trash': case 'stain': case 'pets': startClean(k); break;
+    case 'torch': store.torch = { hung: true, lit: !store.torch.lit }; if (store.torch.lit) { sfx.ignite(); FX.spawnSparkles(118, 46, 6, 6); } else { FX.spawnPuff(118, 46, 5, '#8a847c'); sfx.click(); } break;
+    case 'ramen': {
+      store.ramen = { ...store.ramen, bites: store.ramen.bites + 1 }; sfx.slurp(); FX.spawnPuff(R2.RAMEN_AT[0], R2.RAMEN_AT[1] - 4, 5, '#ffffff');
+      const lines = ['스읍… 맵고 고소해!', '후하후하, 맵다 매워!', '마지막 한 입까지 싹싹!'];
+      toast(lines[Math.min(2, store.ramen.bites - 1)]);
+      if (store.ramen.bites >= 3) { FX.spawnHearts(R2.RAMEN_AT[0], R2.RAMEN_AT[1] - 8, 3); }
+      break;
+    }
     case 'pets-clean': FX.spawnSparkles(60, 200, 4, 10); toast(`${CAT_NAME}의 밥그릇이 반짝반짝해요.`); break;
     case 'cake': FX.spawnConfetti(60); sfx.fanfare(); for (let i = 0; i < 4; i++) setTimeout(FX.launchFirework, i * 400); catCelebrate(1600); break;
-    case 'plant': FX.spawnSparkles(x, y, 4, 6); sfx.pop(); toast('잎이 살랑 흔들려요.', 1600); break;
-    case 'picture': FX.spawnSparkles(87, 54, 5, 10); toast('언젠가 같이 가 보고 싶은 풍경이에요.'); break;
+    case 'picture': sfx.click(); P.openFrame(app); break;
     case 'books': sfx.pop(); toast(BOOK_LINES[Math.floor(Math.random() * BOOK_LINES.length)]); break;
     case 'window': toast(`창밖은 지금 ${weatherText()}`); if (!cat.busy) cat.goToSpot('sill'); cat.hold(12000); break;
     case 'chair': cat.goToSpot('chair'); cat.hold(12000); break;
@@ -350,7 +419,8 @@ function handleEvent(ev) {
   if (ev.type === 'mess') {
     toast(N.MESSAGES.mess.body); sfx.chime(); FX.spawnPuff(150, 190, 10); FX.spawnPuff(60, 200, 6);
   } else if (ev.type === 'letter') {
-    toast(N.MESSAGES.letter.body); sfx.chime(); printingUntil = performance.now() + 3000;
+    sfx.chime();
+    if (!modalOpen()) P.showLetterArrived(app, ev.day); else toast(N.MESSAGES.letter.body);
   } else if (ev.type === 'end') {
     celebrate(false);
   }
@@ -438,7 +508,14 @@ function frame(tms) {
   S.drawLamps(g, store, tms);
   S.drawFire(g, store.fire, tms);
   S.drawTypewriter(g, false, tms);
-  S.drawFax(g, tms < printingUntil, tms);
+  const dd0 = faxDiscDay();
+  if (entered && dd0 && ejectDay !== dd0) { ejectDay = dd0; ejectStart = tms; ejectUntil = tms + EJECT_MS; sfx.whirr(); }
+  S.drawFax(g, tms < ejectUntil, tms);
+  if (store.torch.hung) R2.drawTorch(g, store.torch.lit, tms);
+  if (framePix) R2.drawFramePhoto(g, framePix);
+  R2.drawDrawerMarks(g);
+  if (drawerAnim) { const p = (tms - drawerAnim.start) / 900; if (p >= 1) drawerAnim = null; else R2.drawDrawerOpen(g, drawerAnim.i, p); }
+  for (const [id, fn] of [['rose', R2.drawRose], ['lisianthus', R2.drawLisianthus], ['celosia', R2.drawCelosia]]) fn(g, store.plants[id].n, tms, store.plants[id].last === todayKey());
   const playing = audioNow;
   S.drawTurntable(g, !!playing, playing ? S.discColors(playing).L : '#555', tms);
   if (playing && tms > noteTimer) { noteTimer = tms + 900; FX.spawnNote(312, 112); }
@@ -450,37 +527,47 @@ function frame(tms) {
     const p = (tms - c.start) / c.dur;
     if (p >= 1) { cleaning.splice(cleaning.indexOf(c), 1); finishClean(c); } else anim[c.item] = p;
   }
-  const dirty = (i) => mess && !store.clean.done.includes(i);
-  if (dirty('stain')) S.drawStain(g, anim.stain !== undefined ? 1 - anim.stain : 1);
-  if (dirty('trash')) {
-    let items = S.trashItems(store.clean.messAt / 1000 | 0);
-    if (anim.trash !== undefined) { const vx = 110 + anim.trash * 200; items = items.filter(it => it.x > vx); }
-    S.drawTrash(g, items, tms);
-  }
-  S.drawPetCorner(g, dirty('pets') && !(anim.pets > 0.6), tms);
+  const dirty = (i) => !!mess && store.clean.items.includes(i) && !store.clean.done.includes(i);
+  const fade = (id, fn) => { if (!dirty(id)) return; if (anim[id] !== undefined) { g.globalAlpha = Math.max(0, 1 - anim[id] * 1.2); fn(); g.globalAlpha = 1; } else fn(); };
+  for (const id of ['stain', 'ash', 'soil', 'trash', 'yarn', 'books', 'fur', 'papers']) fade(id, () => R2.drawMessItem(g, id, store.clean.messAt, tms));
+  R2.drawLitter(g, dirty('litter') && !(anim.litter > 0.6), tms);
+  R2.drawBowls(g, dirty('bowls') && !(anim.bowls > 0.6));
+  if (anim.cushions !== undefined) { g.globalAlpha = 1 - anim.cushions; R2.drawPillows(g, true); g.globalAlpha = anim.cushions; R2.drawPillows(g, false); g.globalAlpha = 1; }
+  else R2.drawPillows(g, dirty('cushions'));
   if (anim.blanket !== undefined) {
     g.globalAlpha = 1 - anim.blanket; S.drawBlanket(g, true, tms);
     g.globalAlpha = anim.blanket; S.drawBlanket(g, false, tms); g.globalAlpha = 1;
   } else S.drawBlanket(g, dirty('blanket'), tms);
+  if (app.ramenActive()) R2.drawRamen(g, tms, store.ramen.bites);
 
   cat.draw(g, festive);
 
-  if (anim.trash !== undefined) S.drawVacuum(g, 110 + anim.trash * 200, 206, anim.trash);
-  if (anim.stain !== undefined) S.drawMop(g, 280 + Math.sin(anim.stain * Math.PI * 6) * 9, 208);
-  if (anim.pets !== undefined) { const p = anim.pets; S.drawSponge(g, p < 0.5 ? 38 + p * 40 : 64 + (p - 0.5) * 50, p < 0.5 ? 201 : 206); }
-  if (anim.blanket !== undefined) for (let i = 0; i < 3; i++) S.R(g, 80 + anim.blanket * 30 + i * 10, 150 - anim.blanket * 20 + i * 4, 6, 1, 'rgba(255,255,255,0.6)');
+  for (const [id, p] of Object.entries(anim)) { const d = R2.MESS[id]; R2.drawTool(g, d.tool, d.pos[0], d.pos[1], p); }
+  if (watering) { const [dx, dy] = R2.PLANTS[watering.id].drop; R2.drawWateringCan(g, dx, dy, (tms - watering.start) / 1300); }
 
   // 어둡기 → 불빛
   S.drawShade(g, store, tod, store.fire);
   S.drawGlows(g, store, tod, store.fire, tms);
+  if (store.torch.hung && store.torch.lit) { g.save(); g.globalCompositeOperation = 'lighter'; R2.drawTorchGlow(g, tms); g.restore(); }
+  if (entered) for (const [id, pl] of Object.entries(R2.PLANTS)) if (needsWater(id) && (!watering || watering.id !== id)) R2.drawDropHint(g, pl.drop[0], pl.drop[1], tms + pl.drop[0] * 40);
 
   // 알림 말풍선, LP
   const beforeStart = !festive && t < FIRST_LETTER_AT;
   if (entered && unreadDays().length) S.drawBubble(g, 236, 90 + Math.round(Math.sin(tms / 250) * 2), '!');
   const dd = faxDiscDay();
-  if (dd && !discFly) {
-    const [dx, dy] = discDrag ? [discDrag.x - 8, discDrag.y - 8] : [276, 80 + discBob()];
-    if (!discDrag) { g.save(); g.globalCompositeOperation = 'lighter'; S.ell(g, 284, 88 + discBob(), 11, 11, 'rgba(255,230,160,0.12)'); g.restore(); }
+  if (dd && !discFly && tms < ejectUntil) {
+    // 팩스 위 틈에서 천천히 밀려 올라오는 LP
+    const p = Math.min(1, (tms - ejectStart) / EJECT_MS);
+    const e = 1 - Math.pow(1 - p, 3);
+    const y = S.FAX_SLOT_Y + 1 - e * (S.FAX_SLOT_Y + 1 - 80);
+    g.save(); g.beginPath(); g.rect(260, 0, 50, S.FAX_SLOT_Y + 0.5); g.clip();
+    S.drawDisc(g, dd, 277, Math.round(y));
+    g.restore();
+    if (p > 0.97 && !frame.popped) { frame.popped = true; FX.spawnSparkles(284, 86, 10, 10); sfx.pop(); }
+  } else if (dd && !discFly) {
+    frame.popped = false;
+    const [dx, dy] = discDrag ? [discDrag.x - 8, discDrag.y - 8] : [277, 80 + discBob()];
+    if (!discDrag) { g.save(); g.globalCompositeOperation = 'lighter'; S.ell(g, 285, 88 + discBob(), 11, 11, 'rgba(255,230,160,0.12)'); g.restore(); }
     S.drawDisc(g, dd, dx, dy);
     if (discDrag) { const on = Math.abs(discDrag.x - TT.x) < 22 && Math.abs(discDrag.y - TT.y) < 18; if (on) S.ell(g, TT.x, TT.y, 12, 3, 'rgba(255,240,180,0.35)'); }
   }
@@ -503,10 +590,11 @@ const missionEl = document.getElementById('mission');
 const missionText = document.getElementById('mission-text');
 function updateMission() {
   const m = currentMess();
-  const n = store.clean.done.length;
-  const show = entered && m && n < CLEAN_ITEMS.length;
+  const total = m ? store.clean.items.length : 0;
+  const left = messLeft();
+  const show = entered && m && left > 0;
   missionEl.hidden = !show;
-  if (show) missionText.textContent = `방 청소 ${n}/${CLEAN_ITEMS.length}`;
+  if (show) missionText.textContent = `방 청소 ${total - left}/${total}`;
 }
 
 // ────────── 하단 버튼 ──────────
@@ -564,7 +652,9 @@ function afterGreet(first) {
   const un = unreadDays();
   if (un.length === 1) items.push(['✉️', T.letterUnlockAt(un[0]) < T.kstDayStart(now()) ? '어젯밤 도착한 편지가 있어요!' : '오늘 밤 도착한 편지가 있어요!']);
   else if (un.length > 1) items.push(['✉️', `읽지 않은 편지가 ${un.length}통 있어요!`]);
-  if (currentMess() && store.clean.done.length < CLEAN_ITEMS.length) items.push(['🧹', '밀린 방 청소가 필요해요!']);
+  if (messLeft()) items.push(['🧹', `밀린 방 청소가 필요해요! (${messLeft()}곳)`]);
+  const thirsty = Object.keys(R2.PLANTS).filter(needsWater);
+  if (thirsty.length) items.push(['💧', `화분 ${thirsty.length}개가 오늘 물을 기다려요.`]);
   if (faxDiscDay()) items.push(['💿', `팩스에 LP ${faxDiscDay()}가 도착해 있어요.`]);
   if (items.length) P.showNotices(items, doTest); else doTest();
 }
@@ -583,7 +673,7 @@ async function boot() {
   document.getElementById('enter').addEventListener('click', enter);
   requestAnimationFrame(frame);
   N.registerSW();
-  try { manifest = await loadContent(); } catch { document.getElementById('start-note').textContent = '편지 데이터를 불러오지 못했어요. 인터넷에 연결한 뒤 다시 열어 주세요.'; }
+  try { manifest = await loadContent(); loadFramePixels(); } catch { document.getElementById('start-note').textContent = '편지 데이터를 불러오지 못했어요. 인터넷에 연결한 뒤 다시 열어 주세요.'; }
   T.syncTime().then(() => { lastEventT = now(); });
   refreshWeather();
   setInterval(() => { if (document.visibilityState === 'visible') { T.syncTime(); refreshWeather(); } }, 5 * 60 * 1000);

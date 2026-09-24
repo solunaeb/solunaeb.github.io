@@ -91,7 +91,7 @@ button { font: inherit; color: inherit; }
 
 /* ── 청소 미션 표시 ── */
 #mission {
-  position: fixed; z-index: 5; top: calc(14px + var(--safe-t)); right: calc(14px + var(--safe-r));
+  position: fixed; z-index: 5; top: calc(12px + var(--safe-t)); left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 8px; padding: 7px 12px;
   background: #3b2415; font-size: 14px;
 }
@@ -101,8 +101,8 @@ button { font: inherit; color: inherit; }
 
 /* ── 하단 메뉴 ── */
 #dock {
-  position: fixed; z-index: 5; left: calc(12px + var(--safe-l)); bottom: calc(12px + var(--safe-b));
-  display: flex; gap: 10px;
+  position: fixed; z-index: 5; right: calc(12px + var(--safe-r)); top: calc(12px + var(--safe-t));
+  display: flex; flex-direction: column; gap: 10px;
 }
 .pix-btn {
   --b: var(--wood-dk);
@@ -127,7 +127,7 @@ button { font: inherit; color: inherit; }
 
 /* ── 음악 재생 바 ── */
 #player {
-  position: fixed; z-index: 5; bottom: calc(14px + var(--safe-b)); left: 50%; transform: translateX(-50%);
+  position: fixed; z-index: 5; top: calc(58px + var(--safe-t)); left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 12px; background: #2d1b10;
   max-width: calc(100vw - 150px);
 }
@@ -240,6 +240,16 @@ textarea, input, select {
 textarea { font-family: 'GalmuriMono11', monospace; font-size: 12px; min-height: 80px; resize: vertical; }
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--amber); }
 
+/* 사진 보기 */
+.viewer { display: flex; flex-direction: column; gap: 10px; outline: none; min-height: 0; }
+.viewer .photo { background: #1a0f08; display: grid; place-items: center; min-height: 200px; max-height: 56dvh; box-shadow: inset 0 0 0 3px #26150b; overflow: hidden; }
+.viewer img { max-width: 100%; max-height: 56dvh; object-fit: contain; display: block; transition: opacity .15s; touch-action: pan-y; -webkit-user-drag: none; }
+.viewer .cap { text-align: center; min-height: 1.4em; }
+.viewer .nav { justify-content: center; gap: 16px; }
+.viewer .count { font-family: 'GalmuriMono11', monospace; font-size: 14px; color: var(--cream-dim); }
+.viewer .empty { text-align: center; padding: 30px 0; }
+input[type=range] { width: auto; flex: 1; box-shadow: none; padding: 0; accent-color: #62e07c; }
+
 /* 알림 팝업 */
 .notice-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .notice-list li { display: flex; gap: 12px; align-items: center; background: #54321e; padding: 12px 14px; font-size: 16px; }
@@ -280,8 +290,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px
   .lab { font-size: 8px; }
   .cells { gap: 3px; }
   .until { font-size: 11px; text-align: center; }
-  #mission { top: auto; bottom: calc(76px + var(--safe-b)); right: 50%; transform: translateX(50%); }
-  #player { left: auto; right: calc(12px + var(--safe-r)); transform: none; max-width: calc(100vw - 140px); }
+  #dock { top: auto; right: auto; left: calc(12px + var(--safe-l)); bottom: calc(12px + var(--safe-b)); flex-direction: row; }
+  #mission { top: auto; bottom: calc(76px + var(--safe-b)); left: 50%; transform: translateX(-50%); }
+  #player { top: auto; bottom: calc(14px + var(--safe-b)); left: auto; right: calc(12px + var(--safe-r)); transform: none; max-width: calc(100vw - 140px); }
   #toast { bottom: calc(120px + var(--safe-b)); }
 }
 @media (max-width: 720px) and (min-aspect-ratio: 6/5) {

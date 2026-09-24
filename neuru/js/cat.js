@@ -1,6 +1,5 @@
 // 느루 — 움직임 / 표정 / 그리기
-import { SIT, LOAF, WALK, BACK, CAT_PAL } from './sprites.js';
-import { drawRows, R } from './scene.js';
+import { drawCat, catBox } from './catdraw.js';
 
 const FLOOR_Y = 205;
 export const SPOTS = {
@@ -12,8 +11,6 @@ export const SPOTS = {
   rug: { x: 214, y: 204, pose: 'loaf' },
 };
 
-const POSES = { sit: SIT, loaf: LOAF, back: BACK };
-const HAT_AT = { sit: [10, 0], loaf: [12, 0], back: [10, 0], walk: [33, 0] };
 
 export class Cat {
   constructor() {
@@ -29,13 +26,9 @@ export class Cat {
     this.onArrive = null;
   }
 
-  get sprite() {
-    if (this.pose === 'walk') return WALK[Math.floor(this.walkPhase) % 2];
-    return POSES[this.pose];
-  }
   get box() {
-    const s = this.sprite, h = s.rows.length;
-    return { x: this.x - s.w / 2, y: this.y - h - this.hop, w: s.w, h };
+    const [bx, by, w, h] = catBox(this.pose);
+    return { x: this.x + bx, y: this.y + by - this.hop, w, h };
   }
   hit(px, py) {
     const b = this.box;
@@ -104,7 +97,7 @@ export class Cat {
         const speed = st.run ? 115 : 38;
         const d = st.x - this.x;
         this.pose = 'walk'; this.facing = d >= 0 ? 1 : -1;
-        this.walkPhase += dt / (st.run ? 90 : 200);
+        this.walkPhase += dt / (st.run ? 45 : 110);
         const mv = Math.sign(d) * Math.min(Math.abs(d), speed * dt / 1000);
         this.x += mv;
         if (Math.abs(st.x - this.x) < 0.5) { this.x = st.x; this.step = null; }
@@ -154,46 +147,16 @@ export class Cat {
   }
 
   draw(g, festive) {
-    const s = this.sprite;
-    const h = s.rows.length;
-    const x0 = Math.round(this.x - s.w / 2), y0 = Math.round(this.y - h - this.hop);
-    const flip = this.pose === 'walk' ? this.facing < 0 : false;
-    // 그림자
-    if (!this.hop && this.step?.type !== 'jump') { g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x0 + 1, Math.round(this.y), s.w - 2, 1); }
-    // 어두운 배경에서도 보이도록 은은한 테두리 빛
-    const rim = { k: 'rgba(150,160,200,0.28)', h: 'rgba(150,160,200,0.28)', e: 'rgba(150,160,200,0.28)', n: 'rgba(150,160,200,0.28)' };
-    for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1]]) drawRows(g, s.rows, rim, x0 + ox, y0 + oy, flip);
-    drawRows(g, s.rows, CAT_PAL, x0, y0, flip);
     const nowMs = performance.now();
-    const blink = nowMs < this.blinkUntil;
     const happy = nowMs < this.happyUntil;
-    if (s.eyes) {
-      const G = '#62e07c';
-      for (const [ex, ey] of s.eyes) {
-        if (s.side) {
-          const fx = flip ? s.w - ex - 3 : ex;
-          if (blink || happy) R(g, x0 + fx, y0 + ey + 2, 3, 1, G);
-          else { R(g, x0 + fx, y0 + ey, 3, 3, G); R(g, x0 + fx + (flip ? 0 : 2), y0 + ey, 1, 3, '#0b0c0f'); }
-          continue;
-        }
-        if (happy) {
-          R(g, x0 + ex, y0 + ey + 2, 1, 1, G); R(g, x0 + ex + 1, y0 + ey + 1, 2, 1, G); R(g, x0 + ex + 3, y0 + ey + 2, 1, 1, G);
-        } else if (blink) {
-          R(g, x0 + ex, y0 + ey + 2, 4, 1, '#3a8a50');
-        } else {
-          R(g, x0 + ex, y0 + ey, 4, 3, G);
-          R(g, x0 + ex + 1 + this.look, y0 + ey, 2, 3, '#0b0c0f');
-          R(g, x0 + ex + (this.look > 0 ? 0 : 3), y0 + ey, 1, 1, '#c8ffd4');
-        }
-      }
-      if (happy && !s.side) { R(g, x0 + s.eyes[0][0] - 1, y0 + s.eyes[0][1] + 4, 3, 1, '#c96a7a'); R(g, x0 + s.eyes[1][0] + 2, y0 + s.eyes[1][1] + 4, 3, 1, '#c96a7a'); }
-    }
-    if (festive) {
-      const [hx, hy] = HAT_AT[this.pose];
-      const fx = flip ? s.w - 1 - hx : hx;
-      const bx = x0 + fx, by = y0 + hy;
-      for (let j = 0; j < 9; j++) R(g, bx - Math.floor(j / 2), by - 9 + j, Math.floor(j / 2) * 2 + 1, 1, j % 3 === 1 ? '#f2c14e' : '#e05a8a');
-      R(g, bx - 1, by - 11, 3, 2, '#fff2a8');
-    }
+    const walking = this.pose === 'walk';
+    const b = this.box;
+    if (!this.hop && this.step?.type !== 'jump') { g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(Math.round(b.x + 3), Math.round(this.y), b.w - 6, 1); }
+    drawCat(g, this.pose, Math.round(this.x), Math.round(this.y - this.hop), {
+      t: nowMs, look: this.look, blink: nowMs < this.blinkUntil, happy,
+      walkPhase: this.walkPhase, flip: walking ? this.facing < 0 : false, festive,
+      sway: happy ? 1.0 : walking ? 0.35 : 0.55,
+      speed: happy ? 110 : walking ? 160 : 520,
+    });
   }
 }
