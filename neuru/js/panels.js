@@ -6,7 +6,7 @@ import { kst, letterUnlockAt } from './time.js';
 import { TOTAL_DAYS, FIRST_LETTER_AT, END_AT, TEST_PASSWORD_HASH, VAPID_PUBLIC_KEY, CAT_NAME } from './config.js';
 import { WEATHER_KINDS, WEATHER_LABEL } from './weather.js';
 import { photos, getPhotoUrl } from './content.js';
-import { askNeuru, chatLog, clearChat, aiSettings, saveAiSettings, testAi, listModels, rankModels, explainAiError, aiReady, getKey, forgetKey, PROVIDERS } from './chat.js';
+import { askNeuru, chatLog, clearChat, aiSettings, testAi, listModels, rankModels, explainAiError, aiReady, getKey, forgetKey } from './chat.js';
 import { stageOf, STAGE_LABEL } from './speech.js';
 import { volumes, setVolume } from './audio.js';
 
@@ -271,47 +271,31 @@ export function openTest(app) {
         h('button', { class: 'pix-btn small', onclick: () => { closeModal(true); app.replayGreeting(); } }, '반기기 다시 보기'),
         h('button', { class: 'pix-btn small', onclick: () => { if (confirm('읽은 편지, 청소 기록 등 진행 상황을 모두 지울까요?')) { app.resetProgress(); toast('진행 상황을 지웠어요'); } } }, '진행 초기화'))));
 
-    // AI 대화 연결 — 키는 이 기기에서 꺼낼 수 없는 열쇠로 암호화해 보관
+    // AI 대화 연결 (Google Gemini) — 키는 이 기기에서 꺼낼 수 없는 열쇠로 암호화해 보관
     const ai = aiSettings();
-    const provSel = h('select', { 'aria-label': 'AI 서비스' }, Object.entries(PROVIDERS).map(([k, p]) => h('option', { value: k }, p.label)));
-    provSel.value = ai.provider;
-    const baseIn = h('input', { type: 'url', value: ai.base, placeholder: 'https://…/v1 (OpenAI 호환 주소)', 'aria-label': 'API 주소' });
-    const keyIn = h('input', { type: 'password', value: '', autocomplete: 'off', 'aria-label': 'API 키' });
+    const keyIn = h('input', { type: 'password', value: '', autocomplete: 'off', placeholder: ai.sealed ? `저장된 키 ${ai.hint} (바꿀 때만 입력)` : 'AI Studio 에서 받은 키 (AIza… 로 시작)', 'aria-label': 'Gemini API 키' });
     const modelIn = h('input', { type: 'text', value: ai.model, placeholder: '비워 두면 자동 선택', 'aria-label': '모델 이름', list: 'neuru-models' });
     const modelList = h('datalist', { id: 'neuru-models' }, (ai.models || []).map(m => h('option', { value: m })));
-    const siteLink = h('a', { target: '_blank', rel: 'noopener' });
-    const syncProv = () => {
-      const P = PROVIDERS[provSel.value];
-      baseIn.hidden = provSel.value !== 'custom';
-      keyIn.placeholder = ai.sealed && provSel.value === ai.provider ? `저장된 키 ${ai.hint} (바꿀 때만 입력)` : P.keyHint;
-      siteLink.textContent = P.site ? `키 받는 곳: ${P.site}` : '';
-      siteLink.href = P.site || '#';
-    };
-    provSel.addEventListener('change', () => { modelIn.value = ''; syncProv(); });
-    syncProv();
     const status = h('span', { class: 'pill ' + (ai.sealed && ai.okAt ? 'ok' : ai.sealed ? 'warn' : 'bad') },
       ai.sealed && ai.okAt ? `연결됨 ✓ (${ai.model || ai.resolved})` : ai.sealed && ai.keyOkAt ? '키 정상 ✓ · 대답 확인 전' : ai.sealed ? '키 저장됨 · 연결 확인 전' : '키 없음');
     const aiOut = h('textarea', { readonly: true, 'aria-label': 'AI 연결 결과' });
-    aiOut.value = ai.sealed ? `${PROVIDERS[ai.provider].label}\n저장된 키: ${ai.hint} (암호화되어 보관 중)` : '키가 없어요. 느루는 미리 써 둔 대사로만 대답해요.';
-    const cur = () => ({ provider: provSel.value, base: baseIn.value.trim().replace(/\/+$/, ''), model: modelIn.value.trim(), resolved: '', models: [] });
-    const typedKey = () => keyIn.value.trim();
+    aiOut.value = ai.sealed ? `저장된 키: ${ai.hint} (암호화되어 보관 중)` : '키가 없어요. 느루는 미리 써 둔 대사로만 대답해요.';
     const setStatus = (cls, text) => { status.className = 'pill ' + cls; status.textContent = text; };
     const failText = (e) => '\n' + explainAiError(e) + `\n\n[원본] ${e.status ?? ''} ${e.apiMsg || e.message}`;
-    sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화 (AI 연결)`),
+    const theKey = async () => keyIn.value.trim() || (ai.sealed ? await getKey() : '');
+    sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화 (Gemini 연결)`),
       h('div', { class: 'row' }, status),
       h('p', { class: 'sub' }, '"연결 확인"을 누르면 확인과 저장이 한 번에 돼요. 키는 이 기기에서 꺼낼 수 없는 열쇠로 암호화해서 보관하고, 화면에 다시 보여 주지 않아요.'),
-      provSel, siteLink, baseIn, keyIn, h('div', { class: 'row' }, h('span', { class: 'sub' }, '모델'), modelIn), modelList,
+      keyIn, h('div', { class: 'row' }, h('span', { class: 'sub' }, '모델'), modelIn), modelList,
       h('div', { class: 'row' },
         h('button', { class: 'pix-btn small', onclick: async () => {
-          const c = cur();
-          if (c.provider === 'custom' && !c.base) { setStatus('bad', 'API 주소를 넣어 주세요'); return; }
-          const k = typedKey() || (ai.sealed && c.provider === ai.provider ? await getKey() : '');
+          const k = await theKey();
           if (!k) { setStatus('bad', '키를 먼저 넣어 주세요'); return; }
           setStatus('warn', '연결 확인 중…');
           const lines = [];
           const log = (t) => { if (t.startsWith('②') && lines.length && lines[lines.length - 1].startsWith('②')) lines.pop(); lines.push(t); aiOut.value = lines.join('\n'); };
           try {
-            const r = await testAi(c, k, app.chatContext(), log);
+            const r = await testAi({ model: modelIn.value.trim() }, k, app.chatContext(), log);
             keyIn.value = '';
             lines.pop(); log(`② 대답 받기: 성공 ✓ (모델: ${r.model})`);
             log(`\n${CAT_NAME}: ${r.text}\n\n연결 성공! 키는 암호화해서 저장했어요.`);
@@ -327,14 +311,13 @@ export function openTest(app) {
           }
         } }, '연결 확인'),
         h('button', { class: 'pix-btn small', onclick: async () => {
-          const c = cur();
-          const k = typedKey() || (ai.sealed && c.provider === ai.provider ? await getKey() : '');
+          const k = await theKey();
           if (!k) { aiOut.value = '키를 먼저 넣어 주세요.'; return; }
           aiOut.value = '모델 목록을 불러오는 중…';
           try {
-            const names = rankModels(c.provider, await listModels(c, k));
+            const names = rankModels(await listModels(k));
             modelList.replaceChildren(...names.map(m => h('option', { value: m })));
-            aiOut.value = `추천 순서 (모델 칸에서 골라 쓸 수 있어요)\n\n${names.slice(0, 40).join('\n')}`;
+            aiOut.value = `추천 순서 (모델 칸에서 골라 쓸 수 있어요)\n\n${names.join('\n')}`;
           } catch (e) { aiOut.value = '불러오기 실패' + failText(e); }
         } }, '쓸 수 있는 모델 보기'),
         h('button', { class: 'pix-btn small', onclick: async () => { if (confirm('이 기기에서 AI 키와 암호 열쇠를 모두 지울까요?')) { await forgetKey(); openTest(app); } } }, '키 지우기')),
@@ -359,8 +342,6 @@ export function openTest(app) {
       h('button', { class: 'pix-btn small', onclick: () => { app.exitTest(); } }, '테스트 모드 끝내기'))));
   });
 }
-
-const busy503 = (e) => [429, 500, 503, 504].includes(e.status);
 
 async function makeVapid() {
   const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
@@ -491,7 +472,7 @@ export function openChat(app) {
       const { reply, via } = await askNeuru(text, app.chatContext());
       thinking.remove();
       add('neuru', reply);
-      if (via !== 'ai' && aiReady()) add('note', 'AI 가 잠시 붐벼서 느루가 간단히 대답했어요. 조금 뒤엔 다시 자유롭게 대화할 수 있어요.');
+      if (via !== 'ai' && aiReady()) add('note', '구글 AI 가 잠시 붐벼서 느루가 간단히 대답했어요. 조금 뒤엔 다시 자유롭게 대화할 수 있어요.');
       app.catReply(reply);
       busy = false; send.disabled = false; input.focus();
     };
