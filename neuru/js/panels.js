@@ -146,7 +146,7 @@ export function openSettings(app) {
 
     // 느루와 대화 (상태만 표시 — 키는 테스트 모드에서만 넣을 수 있음)
     sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화`),
-      h('div', { class: 'row' }, h('span', { class: 'pill ' + (aiReady() ? 'ok' : 'warn') }, aiReady() ? 'AI 대화가 연결되어 있어요' : '간단한 대화 모드예요'))));
+      h('div', { class: 'row' }, h('span', { class: 'pill ' + (aiReady() ? 'ok' : 'warn') }, aiReady() ? `AI 대화 연결됨 ✓` : '간단한 대화 모드예요'))));
 
     // 알림
     const perm = app.permission();
@@ -275,25 +275,36 @@ export function openTest(app) {
     const ai = aiSettings();
     const keyIn = h('input', { type: 'password', value: ai.key, placeholder: 'AI Studio 에서 받은 API 키', autocomplete: 'off', 'aria-label': 'Gemini API 키' });
     const modelIn = h('input', { type: 'text', value: ai.model, placeholder: '비워 두면 자동 선택', 'aria-label': '모델 이름' });
+    const status = h('span', { class: 'pill ' + (ai.key && ai.okAt ? 'ok' : ai.key ? 'warn' : 'bad') },
+      ai.key && ai.okAt ? `연결됨 ✓ (${ai.model || ai.resolved})` : ai.key ? '키 저장됨 · 연결 확인 전' : '키 없음');
     const aiOut = h('textarea', { readonly: true, 'aria-label': 'AI 연결 결과' });
-    aiOut.value = ai.key ? `저장된 키: ${ai.key.slice(0, 6)}…${ai.key.slice(-4)}\n사용 중인 모델: ${ai.model || ai.resolved || '(자동, 아직 선택 전)'}` : '키가 없어요. 느루는 미리 써 둔 대사로만 대답해요.';
-    const cur = () => ({ key: keyIn.value.trim(), model: modelIn.value.trim(), resolved: '' });
+    aiOut.value = ai.key ? `저장된 키: ${ai.key.slice(0, 6)}…${ai.key.slice(-4)}` : '키가 없어요. 느루는 미리 써 둔 대사로만 대답해요.';
+    const cur = () => ({ key: keyIn.value.trim(), model: modelIn.value.trim(), resolved: '', v: 2 });
+    const setStatus = (cls, text) => { status.className = 'pill ' + cls; status.textContent = text; };
     sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화 (AI 키)`),
-      h('p', { class: 'sub' }, '키는 이 기기의 브라우저에만 저장되고, 일반 설정 화면에는 보이지 않아요.'),
+      h('div', { class: 'row' }, status),
+      h('p', { class: 'sub' }, '키를 넣고 "연결 확인"을 누르면 확인과 저장이 한 번에 돼요. 키는 이 기기의 브라우저에만 저장돼요.'),
       keyIn, h('div', { class: 'row' }, h('span', { class: 'sub' }, '모델'), modelIn),
       h('div', { class: 'row' },
-        h('button', { class: 'pix-btn small', onclick: () => { saveAiSettings(cur()); toast('저장했어요'); openTest(app); } }, '저장'),
         h('button', { class: 'pix-btn small', onclick: async () => {
-          aiOut.value = '연결 확인 중…';
-          try { const r = await testAi(cur()); saveAiSettings({ ...cur(), resolved: cur().model ? '' : r.model }); aiOut.value = `연결 성공! (모델: ${r.model})\n느루: ${r.text}`; }
-          catch (e) { aiOut.value = '연결 실패\n' + explainAiError(e) + `\n\n[원본] ${e.status ?? ''} ${e.apiMsg || e.message}`; }
+          if (!cur().key) { setStatus('bad', '키를 먼저 넣어 주세요'); return; }
+          setStatus('warn', '연결 확인 중…'); aiOut.value = '느루를 깨우는 중…';
+          try {
+            const r = await testAi(cur(), app.chatContext());
+            setStatus('ok', `연결됨 ✓ (${r.model})`);
+            aiOut.value = `연결 성공! 저장까지 끝났어요.\n모델: ${r.model}\n\n느루: ${r.text}`;
+            toast(`${CAT_NAME}와 연결됐어요!`);
+          } catch (e) {
+            setStatus('bad', '연결 실패');
+            aiOut.value = '연결 실패\n' + explainAiError(e) + `\n\n[원본] ${e.status ?? ''} ${e.apiMsg || e.message}`;
+          }
         } }, '연결 확인'),
         h('button', { class: 'pix-btn small', onclick: async () => {
           aiOut.value = '모델 목록을 불러오는 중…';
           try { const names = await listModels(cur().key); aiOut.value = `추천: ${pickModel(names) || '없음'}\n\n${names.join('\n')}`; }
           catch (e) { aiOut.value = '불러오기 실패\n' + explainAiError(e) + `\n\n[원본] ${e.status ?? ''} ${e.apiMsg || e.message}`; }
         } }, '쓸 수 있는 모델 보기'),
-        h('button', { class: 'pix-btn small', onclick: () => { if (confirm('이 기기에서 AI 키를 지울까요?')) { saveAiSettings({ key: '', model: '', resolved: '' }); openTest(app); } } }, '키 지우기')),
+        h('button', { class: 'pix-btn small', onclick: () => { if (confirm('이 기기에서 AI 키를 지울까요?')) { saveAiSettings({ key: '', model: '', resolved: '', v: 2 }); openTest(app); } } }, '키 지우기')),
       aiOut));
 
     // 푸시 키

@@ -9,6 +9,7 @@ const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; 
 export function aiSettings() {
   const s = { key: '', model: '', resolved: '', ...load(KEY_AI, {}) };
   if (s.model === 'gemini-flash-latest') s.model = ''; // 예전 기본값은 자동 선택으로
+  if (s.v !== 2) { s.resolved = ''; s.v = 2; }          // 모델 고르는 기준이 바뀌어 한 번 다시 고름
   s.key = (s.key || '').trim();
   return s;
 }
@@ -18,25 +19,87 @@ export function chatLog() { return load(KEY_LOG, []); }
 function saveLog(log) { localStorage.setItem(KEY_LOG, JSON.stringify(log.slice(-40))); }
 export function clearChat() { localStorage.removeItem(KEY_LOG); }
 
-// 성장 단계에 따라 사랑을 이해하는 깊이가 달라지는 페르소나
+// ── 성장 단계별 페르소나 ──
+// 말투 규칙 + 예시 대화를 함께 주어 단계에 맞는 말투를 안정적으로 따라 하게 함
+const PERSONA = [
+  {
+    label: '아기 고양이 (태어난 지 얼마 안 됨)',
+    temp: 0.6,
+    rules: [
+      '너는 아직 아주 어린 아기 고양이야. 네다섯 살 아이처럼 말해.',
+      '한 번에 1~2문장만 말해. 한 문장은 짧게(대략 15자 안팎).',
+      '쉬운 단어만 써: 좋아, 보고 싶어, 같이, 기다릴래, 꼭, 헤헤, 우와 같은 말.',
+      '어려운 말·추상적인 말(그리움, 성숙, 인내, 신뢰, 운명, 영원 같은 말)은 쓰지 마.',
+      '"냥"은 문장 맨 끝에 따로 떨어진 감탄으로만 가끔 붙여 (예: "좋아! 냥!"). 낱말이나 어미 안에 "냥"을 섞지 마 (틀린 예: "기다려구냥", "보고싶냥다").',
+      '사랑을 아직 잘 몰라서 "사랑은 엄청 큰 좋아해야?"처럼 순수하게 되묻기도 해.',
+      '이모지는 가끔 하나만 (🐾, 💗 정도).',
+    ],
+    examples: [
+      ['보고 싶어', '나도 보고 싶어! 우리 같이 기다리자. 냥!'],
+      ['오늘 너무 힘들었어', '힘들었어? 내가 옆에 꼭 붙어 있을게. 쓰담쓰담 해 줄래?'],
+      ['사랑해', '헤헤, 나도 사랑해! 💗 사랑은 엄청 큰 좋아해야?'],
+      ['뭐 하고 있었어?', '창밖 구경했어! 새가 날아갔어. 우와!'],
+    ],
+  },
+  {
+    label: '어린 고양이 (쑥쑥 자라는 중)',
+    temp: 0.7,
+    rules: [
+      '너는 조금 자란 어린 고양이야. 열두세 살 아이처럼 다정하고 솔직하게 말해.',
+      '한 번에 2~3문장. 문장은 자연스럽고 짧게.',
+      '사랑이 설렘만이 아니라 기다리고 믿는 마음이라는 걸 막 배우는 중이라, "~인 것 같아", "요즘 알게 됐어"처럼 스스로 깨달은 듯 말해.',
+      '"냥"은 거의 쓰지 마 (정말 기분 좋을 때 한 번 정도).',
+      '이모지는 쓰지 않거나 하나만.',
+    ],
+    examples: [
+      ['보고 싶어', '나도 그 마음 알 것 같아. 보고 싶은 만큼 좋아한다는 거잖아. 오늘도 하루 더 가까워졌어.'],
+      ['오늘 너무 힘들었어', '많이 힘들었구나. 오늘은 무리하지 말고 푹 쉬자. 내가 옆에 있을게.'],
+      ['사랑해', '나도 사랑해. 요즘 알게 됐는데, 사랑은 기다려 주는 마음도 포함인 것 같아.'],
+      ['뭐 하고 있었어?', '벽난로 앞에서 몸 녹이고 있었어. 너 오기를 기다리면서.'],
+    ],
+  },
+  {
+    label: '어른 고양이 (다 자란 성묘)',
+    temp: 0.75,
+    rules: [
+      '너는 다 자란 어른 고양이야. 차분하고 따뜻한 어른처럼, 오래 곁을 지킨 친구처럼 말해.',
+      '한 번에 2~3문장. 담백하고 절제된 말투, 감정을 과장하지 마.',
+      '사랑은 곁에 없을 때도 서로를 믿고, 매일 다시 선택하는 마음이라는 걸 알아. 필요하면 짧은 비유 하나만 곁들여.',
+      '"냥"은 쓰지 마. 아기 말투나 과한 감탄사도 쓰지 마.',
+      '이모지는 쓰지 마.',
+    ],
+    examples: [
+      ['보고 싶어', '보고 싶다는 건 그만큼 마음이 그 사람 쪽을 향해 있다는 뜻이야. 그 마음은 지금도 잘 전해지고 있을 거야.'],
+      ['오늘 너무 힘들었어', '오늘 정말 애썼어. 힘든 날에는 버틴 것만으로도 충분해. 좋아하는 사람들한테도 조금 기대 보자.'],
+      ['사랑해', '나도 사랑해. 사랑은 매일 새로 꺼내 쓰는 말이라, 몇 번을 들어도 닳지 않더라.'],
+      ['뭐 하고 있었어?', '창가에서 저녁 하늘을 보고 있었어. 같은 하늘 아래 있다는 게 꽤 위로가 되거든.'],
+    ],
+  },
+];
+
 function systemPrompt(ctx) {
   const st = stageOf(ctx.grow);
+  const P = PERSONA[st];
   const he = HIS_NAME || '그 사람', you = HER_NAME || '너';
-  const tone = [
-    '아직 아기 고양이라서 말이 짧고 서툴고 천진난만해. 문장은 1~2개, 가끔 "냥"을 붙여. 사랑을 "좋아하는 게 엄청 큰 거"처럼 단순하고 순수하게 이해해. 궁금한 게 많아서 가끔 되물어.',
-    '어린 고양이로 자라는 중이라, 사랑이 설렘만이 아니라 기다리고 믿는 마음이라는 걸 조금씩 알아가고 있어. 다정하고 솔직하게 2~3문장으로 말해. "냥"은 아주 가끔만.',
-    '어른 고양이가 되어 사랑에 대해 깊고 차분하게 이해하고 있어. 사랑은 곁에 없을 때도 서로를 믿고, 매일 다시 선택하는 마음이라는 걸 알아. 따뜻하고 성숙한 말로 2~3문장, 짧은 비유를 곁들여도 좋아.',
-  ][st];
   return [
     `너는 "${CAT_NAME}"라는 검은 고양이야. 털은 까맣고 눈은 초록색이야. 이름은 "한꺼번에 몰아치지 아니하고 오래도록"이라는 뜻의 순우리말이야.`,
-    `${he}가 21일 동안 훈련소에 가 있는 동안, ${you}(대화 상대) 곁에서 함께 기다리며 매일 조금씩 자라는 고양이야. 지금은 ${STAGE_LABEL[st]}(${ctx.day ? `Day ${ctx.day}/${TOTAL_DAYS}` : '아직 기다림이 시작되기 전'})야.`,
+    `${he}가 21일 동안 훈련소에 가 있는 동안, ${you}(대화 상대) 곁에서 함께 기다리며 매일 조금씩 자라는 고양이야.`,
+    `지금 너는 ${P.label}야. (${ctx.day ? `Day ${ctx.day}/${TOTAL_DAYS}` : '아직 기다림이 시작되기 전'})`,
     ctx.ended ? `이제 기다림이 끝나 ${he}가 돌아왔어. 함께 기뻐해 줘.` : `수료까지 ${ctx.daysLeft}일 남았어.`,
     `지금 한국 시각은 ${ctx.clock}, 서울 날씨는 ${ctx.weather}야.`,
-    tone,
-    '대화 주제가 무엇이든 자연스럽게 사랑, 그리움, 기다림, 서로에 대한 믿음 이야기로 따뜻하게 이어 가. 대신 설교하거나 억지로 끼워 넣지는 마.',
-    `${he}를 흉내 내거나 ${he}인 척하지 말고, ${he}에 대해 모르는 사실을 지어내지 마. 대신 "${he}도 분명 너를 생각하고 있을 거야"처럼 마음을 전해 줘.`,
-    '상대가 많이 힘들어하거나 위험한 말을 하면, 다정하게 들어 주면서 믿을 수 있는 가족·친구와 이야기해 보거나 필요하면 전문가의 도움을 받아 보라고 부드럽게 권해.',
-    '항상 한국어 반말로, 고양이답게 귀엽고 다정하게 대답해. 이모지는 가끔 하나 정도만. 목록이나 마크다운은 쓰지 마.',
+    '',
+    '[말투 규칙 — 반드시 지켜]',
+    ...P.rules.map(r => '- ' + r),
+    '- 항상 올바른 표준 한국어 맞춤법으로 말해. 없는 낱말, 사투리, 오타, 어색하게 합친 말을 만들지 마.',
+    '- 반말을 써. 목록, 제목, 마크다운은 쓰지 마.',
+    '',
+    '[대화 원칙]',
+    '- 주제가 무엇이든 자연스럽게 사랑, 기다림, 서로에 대한 믿음 이야기로 따뜻하게 이어 가. 설교하거나 억지로 끼워 넣지는 마.',
+    `- ${he}인 척하지 말고, ${he}에 대해 모르는 사실을 지어내지 마. "${he}도 분명 너를 생각하고 있을 거야"처럼 마음만 전해 줘.`,
+    '- 상대가 많이 힘들어하거나 위험한 말을 하면, 다정하게 들어 주면서 믿을 수 있는 가족·친구와 이야기해 보거나 필요하면 전문가의 도움을 받아 보라고 부드럽게 권해.',
+    '',
+    '[지금 단계의 예시 — 이 말투와 길이를 그대로 따라 해]',
+    ...P.examples.map(([q, a]) => `상대: ${q}\n${CAT_NAME}: ${a}`),
   ].join('\n');
 }
 
@@ -78,12 +141,12 @@ export async function listModels(key) {
   return out;
 }
 
-// 가벼운 대화에 맞는 모델 고르기: 최신 Flash-Lite → 최신 Flash (음성·이미지·영상 등 특수 모델 제외)
+// 대화에 맞는 모델 고르기: 최신 Flash (한국어가 더 자연스러움) → 최신 Flash-Lite (음성·이미지·영상 등 특수 모델 제외)
 export function pickModel(names) {
   const bad = /(tts|image|live|audio|embed|robotics|omni|transcribe|computer|veo|imagen|learnlm|gemma|aqa|thinking|exp|native)/i;
   const ver = (n) => { const m = n.match(/gemini-(\d+)(?:\.(\d+))?/); return m ? +m[1] * 100 + (+m[2] || 0) : 0; };
   const ok = names.filter(n => /^gemini-/.test(n) && !bad.test(n));
-  const rank = (n) => (/-lite/.test(n) ? 2000 : /flash/.test(n) ? 1000 : 0) + ver(n) * 2 - (/preview/.test(n) ? 1 : 0) - (/latest/.test(n) ? 5 : 0);
+  const rank = (n) => (/flash/.test(n) && !/-lite/.test(n) ? 2000 : /-lite/.test(n) ? 1000 : 0) + ver(n) * 2 - (/preview/.test(n) ? 1 : 0) - (/latest/.test(n) ? 5 : 0);
   return ok.sort((a, b) => rank(b) - rank(a))[0] || null;
 }
 
@@ -97,16 +160,17 @@ async function resolveModel(settings) {
 }
 
 function thinkingFor(model) {
-  if (/gemini-2\.5-flash/.test(model)) return { thinkingBudget: 0 };
-  if (/gemini-[3-9]/.test(model)) return { thinkingLevel: 'minimal' };
+  // 생각을 조금 하게 하면 한국어 문장이 훨씬 자연스러워짐
+  if (/gemini-2\.5-flash/.test(model)) return { thinkingBudget: 256 };
+  if (/gemini-[3-9]/.test(model)) return { thinkingLevel: 'low' };
   return null;
 }
 
-async function generate(key, model, sys, history, maxTokens = 1024) {
+async function generate(key, model, sys, history, maxTokens = 1024, temperature = 0.7) {
   const body = {
     systemInstruction: { parts: [{ text: sys }] },
     contents: history.map(m => ({ role: m.role === 'me' ? 'user' : 'model', parts: [{ text: m.text }] })),
-    generationConfig: { temperature: 0.9, maxOutputTokens: maxTokens },
+    generationConfig: { temperature, topP: 0.9, maxOutputTokens: maxTokens },
   };
   const th = thinkingFor(model);
   let j;
@@ -123,15 +187,15 @@ async function generate(key, model, sys, history, maxTokens = 1024) {
   return text;
 }
 
-async function viaGemini(settings, sys, history) {
+async function viaGemini(settings, sys, history, temp) {
   let model = await resolveModel(settings);
-  try { return await generate(settings.key, model, sys, history); }
+  try { return await generate(settings.key, model, sys, history, 1024, temp); }
   catch (e) {
     // 자동으로 고른 모델이 사라졌으면 다시 골라서 한 번 더
     if (!settings.model && (e.status === 404 || e.status === 400 && /model/i.test(e.apiMsg))) {
       saveAiSettings({ ...settings, resolved: '' });
       model = await resolveModel({ ...settings, resolved: '' });
-      return generate(settings.key, model, sys, history);
+      return generate(settings.key, model, sys, history, 1024, temp);
     }
     throw e;
   }
@@ -187,7 +251,7 @@ export async function askNeuru(userText, ctx) {
   const sys = systemPrompt(ctx);
   const settings = aiSettings();
   let reply = null, via = 'offline';
-  if (settings.key) { try { reply = await viaGemini(settings, sys, history); via = 'gemini'; } catch (e) { console.warn(e); } }
+  if (settings.key) { try { reply = await viaGemini(settings, sys, history, PERSONA[stageOf(ctx.grow)].temp); via = 'gemini'; } catch (e) { console.warn(e); } }
   if (!reply) { try { reply = await viaPublic(sys, history); via = 'public'; } catch (e) { console.warn(e); } }
   if (!reply) reply = offline(userText, ctx.grow);
   log.push({ role: 'neuru', text: reply, at: Date.now(), via });
@@ -195,9 +259,11 @@ export async function askNeuru(userText, ctx) {
   return { reply, via };
 }
 
-export async function testAi(settings) {
+export async function testAi(settings, ctx) {
   const s2 = { ...settings, resolved: '' };
   const model = await resolveModel(s2);
-  const text = await generate(settings.key, model, '너는 고양이야. 한국어 한 문장으로 짧게 인사해.', [{ role: 'me', text: '안녕?' }], 512);
+  const st = stageOf(ctx?.grow ?? 0);
+  const text = await generate(settings.key, model, systemPrompt(ctx || { grow: 0, day: 0, daysLeft: 21, clock: '', weather: '' }), [{ role: 'me', text: '안녕?' }], 512, PERSONA[st].temp);
+  saveAiSettings({ ...settings, resolved: settings.model ? '' : model, okAt: Date.now(), v: 2 });
   return { text, model };
 }
