@@ -1,23 +1,63 @@
-// 느루와 대화 — Google AI Studio 무료 키(Gemini) → 없으면 키 없는 공개 API 시도 → 그래도 안 되면 미리 써 둔 대사
+// 느루와 대화 — 여러 AI 서비스 중 하나의 키를 이 기기에 암호화해 보관하고 직접 호출
+// 연결이 안 되면 미리 써 둔 대사로 대답
 import { CAT_NAME, HER_NAME, HIS_NAME, TOTAL_DAYS, END_AT } from './config.js';
 import { stageOf, STAGE_LABEL, say } from './speech.js';
+import { sealSecret, openSecret, forgetWrapKey } from './secure.js';
 
 const KEY_AI = 'neuru.ai';
 const KEY_LOG = 'neuru.chat';
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 
-// mode: 'proxy' (중계 서버 — 추천, 키가 브라우저에 없음) / 'key' (키 직접 입력)
+// ── 연결할 수 있는 AI 서비스 ──
+export const PROVIDERS = {
+  gemini: { label: 'Google AI Studio (Gemini)', kind: 'gemini', keyHint: 'AIza… 로 시작', site: 'https://aistudio.google.com' },
+  openrouter: { label: 'OpenRouter (무료 모델)', kind: 'openai', base: 'https://openrouter.ai/api/v1', keyHint: 'sk-or-… 로 시작', site: 'https://openrouter.ai/keys', defaultModel: 'openrouter/free' },
+  groq: { label: 'Groq', kind: 'openai', base: 'https://api.groq.com/openai/v1', keyHint: 'gsk_… 로 시작', site: 'https://console.groq.com/keys' },
+  custom: { label: '기타 (OpenAI 호환 주소 직접 입력)', kind: 'openai', base: '', keyHint: 'API 키', site: '' },
+};
+
+// 저장 형식: { provider, base, model, resolved, models[], sealed:{iv,ct}, hint, keyOkAt, okAt }
+// 키 원문은 저장하지 않음 (sealed 만 저장)
 export function aiSettings() {
-  const s = { mode: 'proxy', proxy: '', token: '', key: '', model: '', resolved: '', ...load(KEY_AI, {}) };
-  if (!load(KEY_AI, {}).mode && s.key) s.mode = 'key';
-  if (s.model === 'gemini-flash-latest') s.model = ''; // 예전 기본값은 자동 선택으로
-  if (s.v !== 2) { s.resolved = ''; s.v = 2; }          // 모델 고르는 기준이 바뀌어 한 번 다시 고름
-  s.key = (s.key || '').trim(); s.proxy = (s.proxy || '').trim().replace(/\/+$/, ''); s.token = (s.token || '').trim();
+  const s = { provider: 'gemini', base: '', model: '', resolved: '', models: [], sealed: null, hint: '', ...load(KEY_AI, {}) };
+  if (!PROVIDERS[s.provider]) s.provider = 'gemini';
+  if (s.model === 'gemini-flash-latest') s.model = '';
   return s;
 }
-export function saveAiSettings(s) { localStorage.setItem(KEY_AI, JSON.stringify(s)); }
-export function aiReady() { const s = aiSettings(); return s.mode === 'proxy' ? !!(s.proxy && s.token) : !!s.key; }
-const hasCred = (s) => s.mode === 'proxy' ? !!(s.proxy && s.token) : !!s.key;
+export function saveAiSettings(s) {
+  const { key, ...rest } = s;                 // 혹시라도 원문 키가 섞여 들어오면 버림
+  localStorage.setItem(KEY_AI, JSON.stringify(rest));
+}
+export function aiReady() { return !!aiSettings().sealed; }
+
+let keyCache = null;                          // 이번 실행 동안만 메모리에 둠
+export async function getKey() {
+  if (keyCache) return keyCache;
+  const s = load(KEY_AI, {});
+  // 예전 버전(v1.2.x)에서 원문으로 저장된 키가 있으면 암호화해서 옮기고 원문은 지움
+  if (s.key && !s.sealed) {
+    const sealed = await sealSecret(s.key.trim());
+    const hint = maskKey(s.key.trim());
+    keyCache = s.key.trim();
+    delete s.key; delete s.mode; delete s.proxy; delete s.token;
+    localStorage.setItem(KEY_AI, JSON.stringify({ provider: 'gemini', ...s, sealed, hint, keyOkAt: Date.now() }));
+    return keyCache;
+  }
+  keyCache = await openSecret(s.sealed);
+  return keyCache;
+}
+export async function storeKey(settings, plainKey) {
+  const sealed = await sealSecret(plainKey);
+  keyCache = plainKey;
+  saveAiSettings({ ...settings, sealed, hint: maskKey(plainKey) });
+}
+export async function forgetKey() {
+  keyCache = null;
+  localStorage.removeItem(KEY_AI);
+  await forgetWrapKey();
+}
+export function maskKey(k) { return k ? `${k.slice(0, 5)}…${k.slice(-4)}` : ''; }
+
 export function chatLog() { return load(KEY_LOG, []); }
 function saveLog(log) { localStorage.setItem(KEY_LOG, JSON.stringify(log.slice(-40))); }
 export function clearChat() { localStorage.removeItem(KEY_LOG); }
@@ -111,84 +151,143 @@ async function withTimeout(p, ms) {
   try { return await Promise.race([p, t]); } finally { clearTimeout(to); }
 }
 
-const API = 'https://generativelanguage.googleapis.com/v1beta';
-
 class AiError extends Error {
   constructor(status, apiMsg, reason) { super(`${status} ${apiMsg || ''}`.trim()); this.status = status; this.apiMsg = apiMsg || ''; this.reason = reason || ''; }
 }
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const busy = (e) => [429, 500, 502, 503, 504].includes(e.status);
 
-async function call(path, cfg, body) {
+async function request(url, init) {
   let res;
-  const viaProxy = cfg.mode === 'proxy';
-  const base = viaProxy ? cfg.proxy + '/v1beta' : API;
-  const headers = viaProxy ? { 'Content-Type': 'application/json', 'X-Neuru-Token': cfg.token } : { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key };
-  try {
-    res = await withTimeout(fetch(base + path, {
-      method: body ? 'POST' : 'GET',
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    }), 25000);
-  } catch (e) { throw new AiError(0, e.message, 'network'); }
+  try { res = await withTimeout(fetch(url, init), 30000); }
+  catch (e) { throw new AiError(0, e.message, 'network'); }
   let j = null;
   try { j = await res.json(); } catch {}
-  if (!res.ok) throw new AiError(res.status, j?.error?.message, j?.error?.details?.[0]?.reason || j?.error?.status);
+  if (!res.ok) {
+    const err = j?.error;
+    const msg = typeof err === 'string' ? err : err?.message || j?.message || res.statusText;
+    throw new AiError(res.status, msg, err?.details?.[0]?.reason || err?.status || err?.code || '');
+  }
   return j;
 }
 
-// 이 키로 쓸 수 있는 대화 모델 목록
-export async function listModels(cfg) {
-  const out = [];
-  let token = '';
+// ── Google Gemini ──
+const G = 'https://generativelanguage.googleapis.com/v1beta';
+const gHeaders = (key) => ({ 'Content-Type': 'application/json', 'x-goog-api-key': key });
+async function gList(key) {
+  const out = []; let token = '';
   for (let i = 0; i < 5; i++) {
-    const j = await call(`/models?pageSize=200${token ? '&pageToken=' + token : ''}`, cfg);
+    const j = await request(`${G}/models?pageSize=200${token ? '&pageToken=' + token : ''}`, { headers: gHeaders(key) });
     for (const m of j.models || []) if ((m.supportedGenerationMethods || []).includes('generateContent')) out.push(m.name.replace(/^models\//, ''));
     token = j.nextPageToken; if (!token) break;
   }
   return out;
 }
-
-// 대화에 맞는 모델 고르기: 최신 Flash (한국어가 더 자연스러움) → 최신 Flash-Lite (음성·이미지·영상 등 특수 모델 제외)
-export function rankModels(names) {
-  const bad = /(tts|image|live|audio|embed|robotics|omni|transcribe|computer|veo|imagen|learnlm|gemma|aqa|thinking|exp|native)/i;
-  const ver = (n) => { const m = n.match(/gemini-(\d+)(?:\.(\d+))?/); return m ? +m[1] * 100 + (+m[2] || 0) : 0; };
-  const rank = (n) => (/flash/.test(n) && !/-lite/.test(n) ? 2000 : /-lite/.test(n) ? 1000 : 0) + ver(n) * 2 - (/preview/.test(n) ? 1 : 0) - (/latest/.test(n) ? 5 : 0);
-  return names.filter(n => /^gemini-/.test(n) && !bad.test(n)).sort((a, b) => rank(b) - rank(a));
+function gThinking(model) {
+  if (/gemini-2\.5-flash/.test(model)) return { thinkingBudget: 256 };
+  if (/gemini-[3-9]/.test(model)) return { thinkingLevel: 'low' };
+  return null;
 }
-export function pickModel(names) {
-  const bad = /(tts|image|live|audio|embed|robotics|omni|transcribe|computer|veo|imagen|learnlm|gemma|aqa|thinking|exp|native)/i;
-  const ver = (n) => { const m = n.match(/gemini-(\d+)(?:\.(\d+))?/); return m ? +m[1] * 100 + (+m[2] || 0) : 0; };
-  const ok = names.filter(n => /^gemini-/.test(n) && !bad.test(n));
-  const rank = (n) => (/flash/.test(n) && !/-lite/.test(n) ? 2000 : /-lite/.test(n) ? 1000 : 0) + ver(n) * 2 - (/preview/.test(n) ? 1 : 0) - (/latest/.test(n) ? 5 : 0);
-  return ok.sort((a, b) => rank(b) - rank(a))[0] || null;
+async function gGenerate(key, model, sys, history, maxTokens, temperature) {
+  const body = {
+    systemInstruction: { parts: [{ text: sys }] },
+    contents: history.map(m => ({ role: m.role === 'me' ? 'user' : 'model', parts: [{ text: m.text }] })),
+    generationConfig: { temperature, topP: 0.9, maxOutputTokens: maxTokens },
+  };
+  const url = `${G}/models/${encodeURIComponent(model)}:generateContent`;
+  const th = gThinking(model);
+  let j;
+  try { j = await request(url, { method: 'POST', headers: gHeaders(key), body: JSON.stringify(th ? { ...body, generationConfig: { ...body.generationConfig, thinkingConfig: th } } : body) }); }
+  catch (e) { if (th && e.status === 400 && /think/i.test(e.apiMsg)) j = await request(url, { method: 'POST', headers: gHeaders(key), body: JSON.stringify(body) }); else throw e; }
+  const cand = j.candidates?.[0];
+  const text = cand?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('').trim();
+  if (!text) throw new AiError(200, cand?.finishReason ? `빈 답 (${cand.finishReason})` : '빈 답', 'EMPTY');
+  return text;
 }
 
-// 시도할 모델 순서: 직접 적은 모델 → 지난번에 잘 된 모델 → 나머지 후보 (최대 4개)
-async function modelOrder(settings) {
-  let list = settings.models;
-  if (!list?.length) {
-    list = rankModels(await listModels(settings));
-    if (!list.length) throw new AiError(404, '사용할 수 있는 대화 모델이 없어요', 'NO_MODEL');
-    saveAiSettings({ ...aiSettings(), ...settings, models: list });
+// ── OpenAI 호환 (OpenRouter, Groq, 기타) ──
+function oHeaders(provider, key) {
+  const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
+  if (provider === 'openrouter') { h['HTTP-Referer'] = location.origin; h['X-Title'] = 'Neuru'; }
+  return h;
+}
+async function oList(cfg, key) {
+  const j = await request(`${cfg.base}/models`, { headers: oHeaders(cfg.provider, key) });
+  return (j.data || j.models || []).map(m => m.id || m.name).filter(Boolean);
+}
+async function oGenerate(cfg, key, model, sys, history, maxTokens, temperature) {
+  const j = await request(`${cfg.base}/chat/completions`, {
+    method: 'POST', headers: oHeaders(cfg.provider, key),
+    body: JSON.stringify({
+      model, temperature, top_p: 0.9, max_tokens: maxTokens,
+      messages: [{ role: 'system', content: sys }, ...history.map(m => ({ role: m.role === 'me' ? 'user' : 'assistant', content: m.text }))],
+    }),
+  });
+  let text = j.choices?.[0]?.message?.content || '';
+  if (Array.isArray(text)) text = text.map(p => p.text || '').join('');
+  text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();   // 생각 과정을 내보내는 모델 대비
+  if (!text) throw new AiError(200, `빈 답 (${j.choices?.[0]?.finish_reason || '?'})`, 'EMPTY');
+  return text;
+}
+
+// ── 모델 고르기 ──
+export function rankModels(provider, names) {
+  const bad = /(tts|image|live|audio|embed|robotics|omni|transcribe|computer|veo|imagen|learnlm|aqa|whisper|guard|moderation|vision-only|rerank|speech|code|coder)/i;
+  const list = names.filter(n => !bad.test(n));
+  if (provider === 'gemini') {
+    const ver = (n) => { const m = n.match(/gemini-(\d+)(?:\.(\d+))?/); return m ? +m[1] * 100 + (+m[2] || 0) : 0; };
+    const rank = (n) => (/flash/.test(n) && !/-lite/.test(n) ? 2000 : /-lite/.test(n) ? 1000 : 0) + ver(n) * 2 - (/preview/.test(n) ? 1 : 0) - (/latest|exp|thinking|native|gemma/.test(n) ? 50 : 0);
+    return list.filter(n => /^gemini-/.test(n)).sort((a, b) => rank(b) - rank(a));
   }
-  // 한국어가 가장 자연스러운 모델을 늘 먼저, 붐비면 지난번에 잘 된 모델 → 나머지 순서
-  return [...new Set([settings.model || list[0], settings.resolved, ...list].filter(Boolean))].slice(0, 4);
+  if (provider === 'openrouter') {
+    // 무료 모델만: openrouter/free(무료 모델 자동 선택)를 맨 앞에
+    const free = list.filter(n => n.endsWith(':free'));
+    return ['openrouter/free', ...free.filter(n => n !== 'openrouter/free')];
+  }
+  const size = (n) => { const m = n.match(/(\d+)b/i); return m ? +m[1] : 0; };
+  return list.sort((a, b) => size(b) - size(a));
 }
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const busy = (e) => [500, 503, 504].includes(e.status) || (e.status === 429 && e.reason !== 'DAILY_LIMIT');
+export function pickModel(provider, names) { return rankModels(provider, names)[0] || null; }
 
-// 붐비면 잠깐 쉬고 한 번 더, 그래도 안 되면 다음 모델로
-async function generateAny(settings, sys, history, maxTokens, temp, onTry) {
-  const order = await modelOrder(settings);
+function cfgOf(settings) {
+  const P = PROVIDERS[settings.provider];
+  return { ...settings, kind: P.kind, base: (settings.provider === 'custom' ? settings.base : P.base || '').replace(/\/+$/, '') };
+}
+export async function listModels(settings, key) {
+  const cfg = cfgOf(settings);
+  return cfg.kind === 'gemini' ? gList(key) : oList(cfg, key);
+}
+async function generate(cfg, key, model, sys, history, maxTokens, temp) {
+  return cfg.kind === 'gemini' ? gGenerate(key, model, sys, history, maxTokens, temp) : oGenerate(cfg, key, model, sys, history, maxTokens, temp);
+}
+
+// 시도할 모델 순서: 직접 적은 모델 → 가장 좋은 모델 → 지난번에 잘 된 모델 → 나머지 (최대 4개)
+async function modelOrder(cfg, key) {
+  let list = cfg.models;
+  if (!list?.length) {
+    try { list = rankModels(cfg.provider, await listModels(cfg, key)); }
+    catch (e) { if (cfg.model || PROVIDERS[cfg.provider].defaultModel) list = []; else throw e; }
+    saveAiSettings({ ...aiSettings(), models: list });
+  }
+  const order = [...new Set([cfg.model || list[0] || PROVIDERS[cfg.provider].defaultModel, cfg.resolved, ...list].filter(Boolean))].slice(0, 4);
+  if (!order.length) throw new AiError(404, '사용할 수 있는 대화 모델이 없어요', 'NO_MODEL');
+  return order;
+}
+
+// 붐비면(429·503 등) 다음 모델로, 마지막 모델은 한 번 쉬었다 다시
+async function generateAny(settings, key, sys, history, maxTokens, temp, onTry) {
+  const cfg = cfgOf(settings);
+  const order = await modelOrder(cfg, key);
   let last = null;
   for (const [idx, model] of order.entries()) {
-    const tries = idx === 0 && order.length > 1 ? 1 : 2;   // 첫 모델이 붐비면 기다리지 않고 바로 다음 모델로
+    const tries = idx === order.length - 1 ? 2 : 1;
     for (let attempt = 0; attempt < tries; attempt++) {
       onTry?.(model, attempt);
-      try { return { text: await generate(settings, model, sys, history, maxTokens, temp), model }; }
+      try { return { text: await generate(cfg, key, model, sys, history, maxTokens, temp), model }; }
       catch (e) {
         last = e;
-        if (!busy(e) && e.status !== 404) throw e;         // 키·권한 문제는 다른 모델로 넘어가도 소용없음
-        if (e.status === 404) break;                        // 없는 모델 → 바로 다음 모델
+        if (!busy(e) && e.status !== 404 && e.reason !== 'EMPTY') throw e;   // 키·권한 문제는 다른 모델로 넘어가도 소용없음
+        if (!busy(e)) break;
         if (attempt < tries - 1) await sleep(1500);
       }
     }
@@ -196,73 +295,19 @@ async function generateAny(settings, sys, history, maxTokens, temp, onTry) {
   throw last;
 }
 
-function thinkingFor(model) {
-  // 생각을 조금 하게 하면 한국어 문장이 훨씬 자연스러워짐
-  if (/gemini-2\.5-flash/.test(model)) return { thinkingBudget: 256 };
-  if (/gemini-[3-9]/.test(model)) return { thinkingLevel: 'low' };
-  return null;
-}
-
-async function generate(cfg, model, sys, history, maxTokens = 1024, temperature = 0.7) {
-  const body = {
-    systemInstruction: { parts: [{ text: sys }] },
-    contents: history.map(m => ({ role: m.role === 'me' ? 'user' : 'model', parts: [{ text: m.text }] })),
-    generationConfig: { temperature, topP: 0.9, maxOutputTokens: maxTokens },
-  };
-  const th = thinkingFor(model);
-  let j;
-  try {
-    j = await call(`/models/${encodeURIComponent(model)}:generateContent`, cfg, th ? { ...body, generationConfig: { ...body.generationConfig, thinkingConfig: th } } : body);
-  } catch (e) {
-    // 생각 설정을 지원하지 않는 모델이면 설정 없이 한 번 더
-    if (th && e.status === 400 && /think/i.test(e.apiMsg)) j = await call(`/models/${encodeURIComponent(model)}:generateContent`, cfg, body);
-    else throw e;
-  }
-  const cand = j.candidates?.[0];
-  const text = cand?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('').trim();
-  if (!text) throw new AiError(200, cand?.finishReason ? `빈 답 (${cand.finishReason})` : (j.promptFeedback?.blockReason ? `차단됨 (${j.promptFeedback.blockReason})` : '빈 답'), 'EMPTY');
-  return text;
-}
-
-async function viaGemini(settings, sys, history, temp) {
-  const r = await generateAny(settings, sys, history, 1024, temp);
-  if (!settings.model && r.model !== settings.resolved) saveAiSettings({ ...aiSettings(), resolved: r.model });
-  return r.text;
-}
-
 // 실패 이유를 알기 쉽게
 export function explainAiError(e) {
   const m = (e.apiMsg || e.message || '').toLowerCase();
-  if (e.status === 0) return '인터넷 연결이 없거나, 중계 서버 주소가 틀렸거나, 브라우저(광고 차단 확장 프로그램 등)가 요청을 막았어요.';
-  if (e.reason === 'APP_TOKEN') return '앱 비밀번호가 중계 서버의 APP_TOKEN 과 달라요. 두 값을 똑같이 맞춰 주세요.';
-  if (e.reason === 'ORIGIN_NOT_ALLOWED') return '중계 서버의 ALLOWED_ORIGINS 에 지금 사이트 주소가 없어요. 예: https://아이디.github.io';
-  if (e.reason === 'NO_KEY') return '중계 서버에 GEMINI_API_KEY 비밀값이 아직 없어요.';
-  if (e.reason === 'DAILY_LIMIT') return '오늘 대화 한도(DAILY_LIMIT)를 다 썼어요. 내일 다시 이야기할 수 있어요.';
-  if (/api key not valid|api_key_invalid/.test(m) || e.reason === 'API_KEY_INVALID') return '키가 올바르지 않아요. AI Studio 에서 키를 다시 복사해 주세요 (앞뒤 공백 주의).';
-  if (e.status === 403 && /referer|referrer/.test(m)) return '키의 "웹사이트 제한"에 지금 주소가 빠져 있어요. Google Cloud 콘솔에서 이 사이트 주소를 추가해 주세요.';
-  if (e.status === 403) return '이 키로는 Gemini API 를 쓸 수 없어요. AI Studio 에서 만든 키인지, API 제한에 "Generative Language API"가 포함됐는지 확인해 주세요.';
-  if (e.status === 404) return '모델을 찾을 수 없어요. 모델 칸을 비워 두면 쓸 수 있는 모델을 자동으로 골라요.';
-  if (e.status === 429) return '키는 정상이에요. 다만 무료 사용량을 잠시 넘었어요. 조금 뒤에 다시 시도해 주세요.';
-  if ([500, 503, 504].includes(e.status)) return '키는 정상이에요. 다만 구글 모델이 지금 붐벼서 대답을 못 했어요 (구글 쪽 일시적 문제). 잠시 뒤 다시 누르면 돼요.';
+  if (e.status === 0) return '인터넷 연결이 없거나, 이 서비스가 브라우저에서 바로 부르는 걸 막고 있거나(CORS), 광고 차단 확장 프로그램이 막았어요. 다른 서비스를 골라 보세요.';
+  if (e.status === 401 || /api key not valid|invalid api key|api_key_invalid|unauthorized|incorrect api key/.test(m)) return '키가 올바르지 않아요. 고른 서비스와 키가 맞는지, 앞뒤 공백 없이 복사했는지 확인해 주세요.';
+  if (e.status === 402) return '이 모델은 유료예요. 무료 모델(OpenRouter 는 이름 끝이 :free)을 골라 주세요.';
+  if (e.status === 403) return '이 키로는 이 서비스를 쓸 수 없어요. 키를 만든 곳과 권한을 확인해 주세요.';
+  if (e.status === 404) return '모델이나 주소를 찾을 수 없어요. 모델 칸을 비워 두면 자동으로 골라요.';
+  if (e.status === 429) return '키는 정상이에요. 무료 사용량을 잠시 넘었어요. 조금 뒤에 다시 시도해 주세요.';
+  if ([500, 502, 503, 504].includes(e.status)) return '키는 정상이에요. 다만 모델이 지금 붐벼서 대답을 못 했어요 (서비스 쪽 일시적 문제). 잠시 뒤 다시 누르면 돼요.';
   if (e.status === 400 && /location|region|country/.test(m)) return '이 지역에서는 이 모델을 쓸 수 없대요. 다른 모델을 골라 보세요.';
   if (e.status === 200) return 'AI 가 빈 답을 보냈어요: ' + e.apiMsg;
   return `알 수 없는 오류 (${e.status}) ${e.apiMsg}`;
-}
-
-async function viaPublic(sys, history) {
-  const res = await withTimeout(fetch('https://text.pollinations.ai/openai', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'openai',
-      messages: [{ role: 'system', content: sys }, ...history.map(m => ({ role: m.role === 'me' ? 'user' : 'assistant', content: m.text }))],
-    }),
-  }), 20000);
-  if (!res.ok) throw new Error('public ' + res.status);
-  const j = await res.json();
-  const text = j.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error('empty');
-  return text;
 }
 
 // 인터넷/AI 가 안 될 때: 키워드에 맞춘 대사
@@ -278,37 +323,60 @@ function offline(text, grow) {
   return say('idle', grow);
 }
 
+// 예전 버전의 원문 키를 암호화 보관으로 옮기기 (앱 시작 때 한 번)
+export async function migrateLegacyKey() {
+  const s = load(KEY_AI, {});
+  if (s.key && !s.sealed) { try { await getKey(); } catch (e) { console.warn(e); } }
+  else if (s.mode || s.proxy || s.token) { delete s.mode; delete s.proxy; delete s.token; localStorage.setItem(KEY_AI, JSON.stringify(s)); }
+}
+
 export async function askNeuru(userText, ctx) {
+  await migrateLegacyKey();
   const log = chatLog();
   log.push({ role: 'me', text: userText, at: Date.now() });
   const history = log.slice(-16);
-  const sys = systemPrompt(ctx);
   const settings = aiSettings();
   let reply = null, via = 'offline';
-  if (hasCred(settings)) { try { reply = await viaGemini(settings, sys, history, PERSONA[stageOf(ctx.grow)].temp); via = 'gemini'; } catch (e) { console.warn(e); } }
-  if (!reply) { try { reply = await viaPublic(sys, history); via = 'public'; } catch (e) { console.warn(e); } }
+  if (settings.sealed) {
+    const key = await getKey();
+    if (key) {
+      try {
+        const r = await generateAny(settings, key, systemPrompt(ctx), history, 1024, PERSONA[stageOf(ctx.grow)].temp);
+        reply = r.text; via = 'ai';
+        if (!settings.model && r.model !== settings.resolved) saveAiSettings({ ...aiSettings(), resolved: r.model });
+      } catch (e) { console.warn(e); }
+    }
+  }
   if (!reply) reply = offline(userText, ctx.grow);
   log.push({ role: 'neuru', text: reply, at: Date.now(), via });
   saveLog(log);
   return { reply, via };
 }
 
-// 연결 확인: ① 키 확인(모델 목록 받기) → ② 실제로 대답 받아 보기
-export async function testAi(settings, ctx, log = () => {}) {
+// 연결 확인: ① 키 확인(모델 목록) → ② 실제로 대답 받기 → 성공하면 키를 암호화해 저장
+export async function testAi(settings, plainKey, ctx, log = () => {}) {
   const fresh = { ...settings, resolved: '', models: [] };
-  log(fresh.mode === 'proxy' ? '① 중계 서버·키 확인 중…' : '① 키 확인 중…');
-  const names = await listModels(fresh);                   // 여기서 실패하면 키(또는 중계 서버 설정) 문제
-  const list = rankModels(names);
-  saveAiSettings({ ...fresh, models: list, keyOkAt: Date.now(), okAt: 0, v: 2 });
-  log(`① ${fresh.mode === 'proxy' ? '중계 서버·키' : '키'} 확인: 정상 ✓ (대화 모델 ${list.length}개)`);
-  const st = stageOf(ctx?.grow ?? 0);
+  const key = plainKey || await getKey();
+  if (!key) throw new AiError(401, '저장된 키가 없어요', 'NO_KEY');
+  log('① 키 확인 중…');
+  let list = [];
   try {
-    const r = await generateAny({ ...fresh, models: list }, systemPrompt(ctx), [{ role: 'me', text: '안녕?' }], 512, PERSONA[st].temp,
+    list = rankModels(fresh.provider, await listModels(fresh, key));
+    log(`① 키 확인: 정상 ✓ (대화 모델 ${list.length}개)`);
+  } catch (e) {
+    // 모델 목록을 공개로 주는 서비스도 있어서, 목록 실패는 대답 받기로 최종 판단
+    if (e.status === 401 || e.status === 403 || e.status === 0) throw e;
+    log('① 모델 목록은 못 받았지만 대답 받기로 확인할게요');
+  }
+  const st = stageOf(ctx?.grow ?? 0);
+  const withModels = { ...fresh, models: list };
+  try {
+    const r = await generateAny(withModels, key, systemPrompt(ctx), [{ role: 'me', text: '안녕?' }], 512, PERSONA[st].temp,
       (m, a) => log(`② ${m} 에게 말 거는 중${a ? ' (다시 시도)' : ''}…`));
-    saveAiSettings({ ...fresh, models: list, resolved: fresh.model ? '' : r.model, keyOkAt: Date.now(), okAt: Date.now(), v: 2 });
+    await storeKey({ ...withModels, resolved: fresh.model ? '' : r.model, keyOkAt: Date.now(), okAt: Date.now() }, key);
     return { ...r, keyOk: true };
   } catch (e) {
-    e.keyOk = true;
+    if (busy(e)) { await storeKey({ ...withModels, keyOkAt: Date.now(), okAt: 0 }, key); e.keyOk = true; e.saved = true; }
     throw e;
   }
 }

@@ -1,6 +1,7 @@
 // 널 사랑할고양 — 메인
 import { CAT_NAME, END_AT, FIRST_LETTER_AT, TOTAL_DAYS, GROW_START } from './config.js';
 import { say, flowerTalk, lovePing } from './speech.js';
+import { migrateLegacyKey } from './chat.js';
 import * as T from './time.js';
 import { store, persist, resetProgress, addUnique } from './store.js';
 import { loadContent, getLetter, getFinale, photos, getPhotoUrl } from './content.js';
@@ -802,6 +803,7 @@ async function boot() {
   document.getElementById('enter').addEventListener('click', enter);
   requestAnimationFrame(frame);
   N.registerSW();
+  migrateLegacyKey();
   try { manifest = await loadContent(); loadFramePixels(); } catch { document.getElementById('start-note').textContent = '편지 데이터를 불러오지 못했어요. 인터넷에 연결한 뒤 다시 열어 주세요.'; }
   T.syncTime().then(() => { lastEventT = now(); });
   refreshWeather();
