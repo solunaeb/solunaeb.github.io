@@ -289,7 +289,7 @@ export async function askNeuru(userText, ctx) {
       try {
         const r = await generateAny(settings, key, systemPrompt(ctx), history, 1024, PERSONA[stageOf(ctx.grow)].temp);
         reply = r.text; via = 'ai';
-        if (!settings.model && r.model !== settings.resolved) saveAiSettings({ ...aiSettings(), resolved: r.model });
+        saveAiSettings({ ...aiSettings(), resolved: settings.model ? '' : r.model, okAt: Date.now() });   // 대화가 되면 '연결됨'으로 표시
       } catch (e) { console.warn(e); }
     }
   }

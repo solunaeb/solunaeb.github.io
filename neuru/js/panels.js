@@ -146,7 +146,7 @@ export function openSettings(app) {
 
     // 느루와 대화 (상태만 표시 — 키는 테스트 모드에서만 넣을 수 있음)
     sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화`),
-      h('div', { class: 'row' }, (() => { const a = aiSettings(), r = aiReady(); return r && a.okAt ? h('span', { class: 'pill ok' }, 'AI 대화 연결됨 ✓') : r && a.keyOkAt ? h('span', { class: 'pill warn' }, 'AI 키 정상 · 대답 확인 전') : r ? h('span', { class: 'pill warn' }, 'AI 키 저장됨 · 연결 확인 전') : h('span', { class: 'pill warn' }, '간단한 대화 모드예요'); })())));
+      h('div', { class: 'row' }, (() => { const a = aiSettings(), r = aiReady(); return r && a.okAt ? h('span', { class: 'pill ok' }, 'AI 대화 연결됨 ✓') : r && a.keyOkAt ? h('span', { class: 'pill warn' }, 'AI 키 정상 · 대답 확인 전') : r ? h('span', { class: 'pill ok' }, 'AI 대화 준비됨 ✓ (말을 걸어 보세요)') : h('span', { class: 'pill warn' }, '간단한 대화 모드예요'); })())));
 
     // 알림
     const perm = app.permission();
