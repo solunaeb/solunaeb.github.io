@@ -6,7 +6,7 @@ import { kst, letterUnlockAt } from './time.js';
 import { TOTAL_DAYS, FIRST_LETTER_AT, END_AT, TEST_PASSWORD_HASH, VAPID_PUBLIC_KEY, CAT_NAME } from './config.js';
 import { WEATHER_KINDS, WEATHER_LABEL } from './weather.js';
 import { photos, getPhotoUrl } from './content.js';
-import { askNeuru, chatLog, clearChat, aiSettings, saveAiSettings, testAi } from './chat.js';
+import { askNeuru, chatLog, clearChat, aiSettings, saveAiSettings, testAi, listModels, pickModel, explainAiError, aiReady } from './chat.js';
 import { stageOf, STAGE_LABEL } from './speech.js';
 import { volumes, setVolume } from './audio.js';
 
@@ -144,17 +144,9 @@ export function openSettings(app) {
     sc.append(h('div', { class: 'set-sec' }, h('h3', {}, '소리'), h('div', { class: 'row' }, soundBtn),
       slider('sfx', '효과음'), slider('music', '음악'), slider('amb', '빗소리·장작')));
 
-    // 느루와 대화 (AI)
-    const ai = aiSettings();
-    const keyIn = h('input', { type: 'password', value: ai.key, placeholder: 'AIza… 로 시작하는 키', autocomplete: 'off', 'aria-label': 'Google AI Studio API 키' });
-    const modelIn = h('input', { type: 'text', value: ai.model, 'aria-label': '모델 이름' });
-    const aiState = h('span', { class: 'pill ' + (ai.key ? 'ok' : 'warn') }, ai.key ? '키가 저장되어 있어요' : '키 없음 (간단한 대화만)');
-    sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화 (AI)`),
-      h('p', { class: 'sub' }, 'Google AI Studio 에서 무료로 받은 API 키를 넣으면 느루와 자유롭게 대화할 수 있어요. 키는 이 기기에만 저장돼요.'),
-      keyIn, h('div', { class: 'row' }, h('span', { class: 'sub' }, '모델'), modelIn),
-      h('div', { class: 'row' }, aiState,
-        h('button', { class: 'pix-btn small', onclick: () => { saveAiSettings({ key: keyIn.value.trim(), model: modelIn.value.trim() || 'gemini-flash-latest' }); toast('저장했어요'); openSettings(app); } }, '저장'),
-        h('button', { class: 'pix-btn small', onclick: async () => { try { const t = await testAi({ key: keyIn.value.trim(), model: modelIn.value.trim() || 'gemini-flash-latest' }); toast('연결 성공! ' + t.slice(0, 40)); } catch (e) { toast('연결 실패: 키나 모델 이름을 확인해 주세요 (' + e.message + ')', 4200); } } }, '연결 확인'))));
+    // 느루와 대화 (상태만 표시 — 키는 테스트 모드에서만 넣을 수 있음)
+    sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화`),
+      h('div', { class: 'row' }, h('span', { class: 'pill ' + (aiReady() ? 'ok' : 'warn') }, aiReady() ? 'AI 대화가 연결되어 있어요' : '간단한 대화 모드예요'))));
 
     // 알림
     const perm = app.permission();
@@ -278,6 +270,31 @@ export function openTest(app) {
         h('button', { class: 'pix-btn small', onclick: () => { closeModal(true); app.celebrate(true); } }, '축하 연출 보기'),
         h('button', { class: 'pix-btn small', onclick: () => { closeModal(true); app.replayGreeting(); } }, '반기기 다시 보기'),
         h('button', { class: 'pix-btn small', onclick: () => { if (confirm('읽은 편지, 청소 기록 등 진행 상황을 모두 지울까요?')) { app.resetProgress(); toast('진행 상황을 지웠어요'); } } }, '진행 초기화'))));
+
+    // AI 대화 키 (이 기기에만 저장)
+    const ai = aiSettings();
+    const keyIn = h('input', { type: 'password', value: ai.key, placeholder: 'AI Studio 에서 받은 API 키', autocomplete: 'off', 'aria-label': 'Gemini API 키' });
+    const modelIn = h('input', { type: 'text', value: ai.model, placeholder: '비워 두면 자동 선택', 'aria-label': '모델 이름' });
+    const aiOut = h('textarea', { readonly: true, 'aria-label': 'AI 연결 결과' });
+    aiOut.value = ai.key ? `저장된 키: ${ai.key.slice(0, 6)}…${ai.key.slice(-4)}\n사용 중인 모델: ${ai.model || ai.resolved || '(자동, 아직 선택 전)'}` : '키가 없어요. 느루는 미리 써 둔 대사로만 대답해요.';
+    const cur = () => ({ key: keyIn.value.trim(), model: modelIn.value.trim(), resolved: '' });
+    sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화 (AI 키)`),
+      h('p', { class: 'sub' }, '키는 이 기기의 브라우저에만 저장되고, 일반 설정 화면에는 보이지 않아요.'),
+      keyIn, h('div', { class: 'row' }, h('span', { class: 'sub' }, '모델'), modelIn),
+      h('div', { class: 'row' },
+        h('button', { class: 'pix-btn small', onclick: () => { saveAiSettings(cur()); toast('저장했어요'); openTest(app); } }, '저장'),
+        h('button', { class: 'pix-btn small', onclick: async () => {
+          aiOut.value = '연결 확인 중…';
+          try { const r = await testAi(cur()); saveAiSettings({ ...cur(), resolved: cur().model ? '' : r.model }); aiOut.value = `연결 성공! (모델: ${r.model})\n느루: ${r.text}`; }
+          catch (e) { aiOut.value = '연결 실패\n' + explainAiError(e) + `\n\n[원본] ${e.status ?? ''} ${e.apiMsg || e.message}`; }
+        } }, '연결 확인'),
+        h('button', { class: 'pix-btn small', onclick: async () => {
+          aiOut.value = '모델 목록을 불러오는 중…';
+          try { const names = await listModels(cur().key); aiOut.value = `추천: ${pickModel(names) || '없음'}\n\n${names.join('\n')}`; }
+          catch (e) { aiOut.value = '불러오기 실패\n' + explainAiError(e) + `\n\n[원본] ${e.status ?? ''} ${e.apiMsg || e.message}`; }
+        } }, '쓸 수 있는 모델 보기'),
+        h('button', { class: 'pix-btn small', onclick: () => { if (confirm('이 기기에서 AI 키를 지울까요?')) { saveAiSettings({ key: '', model: '', resolved: '' }); openTest(app); } } }, '키 지우기')),
+      aiOut));
 
     // 푸시 키
     const out = h('textarea', { readonly: true, 'aria-label': '생성된 키' });
