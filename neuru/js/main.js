@@ -1,5 +1,6 @@
 // 널 사랑할고양 — 메인
-import { CAT_NAME, END_AT, FIRST_LETTER_AT, TOTAL_DAYS } from './config.js';
+import { CAT_NAME, END_AT, FIRST_LETTER_AT, TOTAL_DAYS, GROW_START } from './config.js';
+import { say, flowerTalk, lovePing } from './speech.js';
 import * as T from './time.js';
 import { store, persist, resetProgress, addUnique } from './store.js';
 import { loadContent, getLetter, getFinale, photos, getPhotoUrl } from './content.js';
@@ -147,6 +148,18 @@ const app = {
   celebrate: (force) => celebrate(force),
   replayGreeting: () => greet(),
   resetProgress() { resetProgress(); stopMusic(); ejectDay = 0; },
+  grow: () => cat.grow,
+  growDay: () => T.growDay(now()),
+  sayLine: (kind) => say(kind, cat.grow),
+  chatContext() {
+    const t = now(), k = T.kst(t);
+    return { grow: cat.grow, day: T.growDay(t), daysLeft: Math.max(0, Math.ceil((END_AT - t) / 86400000)), ended: ended(), clock: `${k.mo}월 ${k.d}일 ${k.h}시 ${k.mi}분`, weather: weatherText() };
+  },
+  catListen() { cat.touch(); if (!cat.busy && !cat.up) cat.pose = 'sit'; cat.look = 0; },
+  catReply(text) { cat.happy(900); if (Math.random() < 0.3) sfx.meow(); },
+  emptyHumid() { store.humid = { ...store.humid, refillAt: now() - HUMID_MS }; },
+  sleepNow() { cat.lastTouch = -1e9; cat.holdUntil = 0; },
+  loveTest() { handleEvent({ type: 'love', at: now() }); },
   setTorch(hung) { store.torch = { hung, lit: hung }; if (hung) { sfx.ignite(); FX.spawnSparkles(118, 50, 8, 8); toast('횃불을 벽에 걸었어요. 누르면 켜고 끌 수 있어요.'); } else toast('횃불을 서랍에 넣었어요.'); },
   ramenActive: () => store.ramen.until > now() && store.ramen.bites < 3,
   cookRamen() { store.ramen = { until: now() + 20 * 60 * 1000, bites: 0 }; sfx.whoosh(); FX.spawnPuff(R2.RAMEN_AT[0], R2.RAMEN_AT[1], 8, '#ffffff'); toast('보글보글… 까르보 불닭 한 그릇 완성!'); if (!cat.busy) { cat.goToFloor(R2.RAMEN_AT[0] + 22, 'sit'); cat.hold(10000); } },
@@ -176,10 +189,11 @@ function finishClean(c) {
   FX.spawnSparkles(pos[0], pos[1] - 4, 10, 12); sfx.sparkle();
   if (messLeft() === 0) {
     setTimeout(() => {
-      banner('방 청소 완료!'); sfx.fanfare(); catCelebrate(2200);
+      banner('방 청소 완료!'); sfx.fanfare(); cat.touch(); catCelebrate(2200);
       const b = cat.box; FX.spawnHearts(b.x + b.w / 2, b.y, 6);
+      setTimeout(() => speak(say('clean', cat.grow), 4200), 900);
     }, 250);
-  }
+  } else if (c.item === 'bowls' && !cat.sleeping) setTimeout(startEat, 700);
 }
 function catCelebrate(ms) {
   const step = { type: 'celebrate', ms };
@@ -195,6 +209,10 @@ function petCat() {
   if (t - lastPet < 250) return;
   lastPet = t;
   initAudio();
+  const wasSleeping = cat.sleeping;
+  cat.touch();
+  if (wasSleeping) { speak(say('wake', cat.grow), 3600); sfx.meow(); }
+  else if (t - lastSpeak > 5000 && Math.random() < 0.45) speak(say('pet', cat.grow), 3800);
   const b = cat.box;
   FX.spawnHearts(b.x + b.w / 2 - 2, b.y - 2, 2);
   cat.happy(1800); cat.hold(9000);
@@ -206,7 +224,68 @@ function petCat() {
 const catCtx = {
   thump() { /* 착지는 조용히 */ },
   celebrate(c) { const b = c.box; FX.spawnHearts(b.x + b.w / 2, b.y, 5); sfx.meow(); },
+  zzz(c) { const [hx, hy] = c.head; FX.spawnZ(hx + 4, hy - 4); },
+  eatTick(c) { sfx.crunch(); FX.spawnCrumbs(69, 204); },
+  pounce(c) {
+    const dir = ball.x >= c.x ? 1 : -1;
+    ball.vx = dir * (70 + Math.random() * 50);
+    FX.spawnSparkles(ball.x, ball.y - 3, 4, 4); sfx.pop();
+    play.left--;
+    if (play.left <= 0) { play.active = false; setTimeout(() => { if (!cat.busy) { cat.happy(1500); speak(say('play', cat.grow), 3600); } }, 700); }
+  },
+  canEat: () => !cat.sleeping && !isDirty('bowls') && performance.now() - lastEat > 180000,
+  canPlay: () => !cat.sleeping && !play.active,
+  startEat: () => startEat(),
+  startPlay: () => startPlay(),
 };
+let lastEat = -Infinity;
+function startEat() {
+  if (cat.sleeping || isDirty('bowls')) return;
+  lastEat = performance.now();
+  cat.goEat(69, 5200); cat.hold(7000);
+  setTimeout(() => { if (Math.random() < 0.6) speak(say('eat', cat.grow), 3400); }, 5600);
+}
+// 장난감 털 공
+const ball = { x: 258, y: 213, vx: 0, rot: 0 };
+const play = { active: false, left: 0 };
+function startPlay() {
+  if (cat.sleeping) cat.touch();
+  play.active = true; play.left = 3;
+  cat.pounce(ball.x); cat.hold(4000);
+}
+function updateBall(dt) {
+  const s = dt / 1000;
+  if (Math.abs(ball.vx) > 1) {
+    ball.x += ball.vx * s; ball.rot += ball.vx * s / 3; ball.vx *= Math.pow(0.18, s);
+    if (ball.x < 96) { ball.x = 96; ball.vx = Math.abs(ball.vx); }
+    if (ball.x > 312) { ball.x = 312; ball.vx = -Math.abs(ball.vx); }
+  } else if (ball.vx !== 0) {
+    ball.vx = 0;
+    if (play.active && play.left > 0 && !cat.sleeping) { cat.pounce(ball.x); cat.hold(4000); }
+  }
+}
+
+// ── 말풍선 ──
+const bubbleEl = document.getElementById('bubble');
+let bubbleUntil = 0, lastSpeak = 0, nextChatter = performance.now() + 40000;
+function speak(text, ms = 3500) {
+  if (!text || !entered) return;
+  bubbleEl.textContent = text;
+  bubbleEl.hidden = false;
+  bubbleEl.style.animation = 'none'; void bubbleEl.offsetWidth; bubbleEl.style.animation = '';
+  bubbleUntil = performance.now() + ms + text.length * 40;
+  lastSpeak = performance.now();
+}
+function updateBubble(tms) {
+  if (bubbleEl.hidden) return;
+  if (tms > bubbleUntil || modalOpen()) { bubbleEl.hidden = true; return; }
+  const [hx, hy] = cat.head;
+  let sx = view.offX + hx * view.scale, sy = view.offY + (hy - 6) * view.scale;
+  const w = bubbleEl.offsetWidth;
+  sx = Math.max(w / 2 + 8, Math.min(window.innerWidth - w / 2 - 8, sx));
+  sy = Math.max(bubbleEl.offsetHeight + 12, sy);
+  bubbleEl.style.left = sx + 'px'; bubbleEl.style.top = sy + 'px';
+}
 function greet(onDone) {
   const { a, b } = visibleRange();
   const center = Math.max(80, Math.min(310, (a + b) / 2));
@@ -225,6 +304,7 @@ function hitTest(x, y) {
   const dd = faxDiscDay();
   if (dd && !discFly && performance.now() > ejectUntil && inR(274, 78 + discBob(), 22, 22)) return 'disc';
   for (const id of R2.MESS_IDS) if (isDirty(id) && R2.MESS[id].hit.some(hb => inR(...hb))) return 'mess:' + id;
+  if (inR(...R2.HUMID.hit)) return 'humid';
   if (app.ramenActive() && inR(R2.RAMEN_AT[0] - 10, R2.RAMEN_AT[1] - 8, 20, 18)) return 'ramen';
   if (inR(30, 186, 66, 28)) return 'pets-clean';
   if (ended() && inR(276, 186, 28, 22)) return 'cake';
@@ -242,29 +322,32 @@ function hitTest(x, y) {
   if (inR(0, 0, 30, 176) || inR(356, 0, 28, 144)) return 'books';
   if (inR(S.WIN.x, S.WIN.y, S.WIN.w, S.WIN.h - (x < 186 ? 12 : 0))) return 'window';
   if (inR(226, 138, 36, 34)) return 'chair';
-  if (inR(196, 124, 24, 10)) return 'deskTop';
+  if (Math.abs(x - ball.x) < 6 && y > ball.y - 9 && y < ball.y + 3) return 'ball';
   if (inR(44, 116, 142, 80)) return 'sofa';
   if (y >= 172) return 'floor';
   return null;
 }
 
 const BOOK_LINES = [
-  '책 사이에 끼워 둔 네잎클로버를 찾았어요.',
-  '"오늘도 잘 버텼어." 누군가 연필로 적어 둔 문장이에요.',
-  '책장이 살짝 기울어 있어요. 느루가 올라갔던 걸까요?',
-  '먼지 냄새 대신 따뜻한 종이 냄새가 나요.',
-  '읽다 만 페이지에 영수증 책갈피가 꽂혀 있어요.',
-  '제목만 봐도 설레는 책이에요. 다음에 같이 읽어요.',
+  '책 사이에 삿포로행 비행기 티켓 두 장이 끼워져 있어요. 날짜 칸은 아직 비어 있네요.',
+  '"눈 오는 오타루 운하 걷기"라고 적힌 메모가 책갈피로 꽂혀 있어요.',
+  '여행 책 귀퉁이가 접혀 있어요. 삿포로 수프카레 맛집 페이지예요.',
+  '책 속에 "다녀와서 제일 먼저 할 일" 목록이 숨어 있어요. 첫 줄은 꽉 안아 주기.',
+  '낡은 지도책에 동그라미가 여러 개 그려져 있어요. 같이 가 볼 곳들인가 봐요.',
+  '책갈피 대신 삿포로 눈축제 안내지가 꽂혀 있어요. 내년 겨울엔 둘이 함께!',
+  '"우리 집 이름 후보"라고 적힌 쪽지가 나왔어요. 1번은 느루의 집.',
+  '제목만 봐도 설레는 책이에요. 다음에 같이 읽기로 한 책이래요.',
 ];
 
 let drawerAnim = null;
 let watering = null;
 const todayKey = () => { const k = T.kst(now()); return `${k.y}${String(k.mo).padStart(2, '0')}${String(k.d).padStart(2, '0')}`; };
-const needsWater = (id) => store.plants[id].n < 21 && store.plants[id].last !== todayKey();
+const needsWater = (id) => now() >= GROW_START && store.plants[id].n < 21 && store.plants[id].last !== todayKey();
 function waterPlant(id) {
   const pl = store.plants[id], name = R2.PLANTS[id].name;
   if (watering) return;
-  if (pl.n >= 21) { FX.spawnSparkles(R2.PLANTS[id].drop[0], R2.PLANTS[id].drop[1] + 10, 6, 10); toast(`${name}가 활짝 피었어요. 21번의 물이 꽃이 되었어요.`); return; }
+  if (now() < GROW_START) { toast(`씨앗이 10월 29일을 기다리고 있어요. 그날부터 매일 물을 줄 수 있어요.`); return; }
+  if (pl.n >= 21) { FX.spawnSparkles(R2.PLANTS[id].drop[0], R2.PLANTS[id].drop[1] + 10, 6, 10); toast(`${name}가 활짝 피었어요. 꽃말은 '${R2.PLANTS[id].meaning}'.`); return; }
   if (pl.last === todayKey()) { toast(`${name}에는 오늘 이미 물을 줬어요. (${pl.n}/21)`); return; }
   watering = { id, start: performance.now() };
   sfx.water();
@@ -274,8 +357,24 @@ function waterPlant(id) {
     FX.spawnSparkles(dx, dy + 12, 8, 10);
     if (pl.n + 1 >= 21) { sfx.fanfare(); banner(`${name} 만개!`); FX.spawnHearts(dx, dy + 6, 4); }
     else toast(`${name}에 물을 줬어요. (${pl.n + 1}/21)`);
+    const talk = flowerTalk(name, R2.PLANTS[id].meaning, pl.n + 1, cat.grow);
+    if (talk) setTimeout(() => speak(talk, 5200), 600);
     watering = null;
   }, 1300);
+}
+const HUMID_MS = 24 * 3600 * 1000;
+const humidLevel = () => Math.max(0, 1 - (now() - (store.humid.refillAt || 0)) / HUMID_MS);
+let humidRefill = null, nextMist = 0;
+function tapHumid() {
+  const lv = humidLevel();
+  if (humidRefill) return;
+  if (lv < 0.4) {
+    humidRefill = performance.now(); sfx.water();
+    setTimeout(() => { store.humid = { ...store.humid, refillAt: now() }; humidRefill = null; FX.spawnSparkles(203, 118, 8, 8); toast('가습기 물을 새로 갈아 줬어요. 촉촉!'); }, 1200);
+  } else {
+    store.humid = { ...store.humid, light: !store.humid.light }; sfx.click();
+    toast(`무드등을 ${store.humid.light ? '켰어요' : '껐어요'}. 물은 ${Math.round(lv * 100)}% 남았어요.`);
+  }
 }
 let ejectDay = 0, ejectStart = 0, ejectUntil = 0;
 const EJECT_MS = 2200;
@@ -308,8 +407,11 @@ function tap(x, y) {
     const i = +k.slice(7); drawerAnim = { i, start: performance.now() }; sfx.drawer();
     setTimeout(() => P.openDrawer(app, i), 260); return;
   }
+  if (['floor', 'sofa', 'chair', 'window', 'ball'].includes(k)) cat.touch();
   switch (k) {
     case 'cat': petCat(); break;
+    case 'humid': tapHumid(); break;
+    case 'ball': ball.vx = (Math.random() < 0.5 ? -1 : 1) * 90; sfx.pop(); startPlay(); break;
     case 'typewriter': {
       sfx.click();
       if (beforeStart) { toast('10월 29일 밤 11시부터 편지가 도착해요.'); break; }
@@ -348,7 +450,6 @@ function tap(x, y) {
     case 'books': sfx.pop(); toast(BOOK_LINES[Math.floor(Math.random() * BOOK_LINES.length)]); break;
     case 'window': toast(`창밖은 지금 ${weatherText()}`); if (!cat.busy) cat.goToSpot('sill'); cat.hold(12000); break;
     case 'chair': cat.goToSpot('chair'); cat.hold(12000); break;
-    case 'deskTop': cat.goToSpot('desk'); cat.hold(12000); break;
     case 'sofa': cat.goToSpot('sofa'); cat.hold(12000); break;
     case 'floor': cat.goToFloor(x, 'sit'); cat.hold(8000); break;
   }
@@ -423,6 +524,10 @@ function handleEvent(ev) {
     if (!modalOpen()) P.showLetterArrived(app, ev.day); else toast(N.MESSAGES.letter.body);
   } else if (ev.type === 'end') {
     celebrate(false);
+  } else if (ev.type === 'love') {
+    const msg = lovePing(Math.floor(ev.at / 3600000)).replace(/^[^:]+:\s*/, '');
+    if (cat.sleeping) cat.touch();
+    speak(msg, 5000); sfx.meow(); const b = cat.box; FX.spawnHearts(b.x + b.w / 2, b.y, 4);
   }
 }
 
@@ -489,7 +594,14 @@ function frame(tms) {
     cat.weather = wk; cat.fireOn = store.fire;
     setAmbience('rain', entered && (wk === 'rain' || wk === 'storm'));
   }
+  cat.grow = T.growthAt(t);
   cat.update(dt, catCtx);
+  updateBall(dt);
+  updateBubble(tms);
+  if (entered && tms > nextChatter) {
+    nextChatter = tms + 45000 + Math.random() * 40000;
+    if (!cat.sleeping && !modalOpen() && tms - lastSpeak > 20000) speak(say('idle', cat.grow), 4200);
+  }
   FX.updateEffects(dt, () => sfx.firework());
   if (festive && entered && tms > nextFirework) { FX.launchFirework(); nextFirework = tms + 2200 + Math.random() * 3200; }
 
@@ -529,7 +641,18 @@ function frame(tms) {
   }
   const dirty = (i) => !!mess && store.clean.items.includes(i) && !store.clean.done.includes(i);
   const fade = (id, fn) => { if (!dirty(id)) return; if (anim[id] !== undefined) { g.globalAlpha = Math.max(0, 1 - anim[id] * 1.2); fn(); g.globalAlpha = 1; } else fn(); };
-  for (const id of ['stain', 'ash', 'soil', 'trash', 'yarn', 'books', 'fur', 'papers']) fade(id, () => R2.drawMessItem(g, id, store.clean.messAt, tms));
+  for (const id of ['stain', 'ash', 'soil', 'yarn', 'books', 'fur', 'papers']) fade(id, () => R2.drawMessItem(g, id, store.clean.messAt, tms));
+  // 청소기는 러그를 한 번에 슉 지나가며 쓰레기를 빨아들임
+  const vacX = anim.trash !== undefined ? R2.MESS.trash.sweep[0] + anim.trash * (R2.MESS.trash.sweep[1] - R2.MESS.trash.sweep[0]) : null;
+  if (dirty('trash')) {
+    const bits = R2.trashBits(store.clean.messAt).filter(b => vacX === null || b.x > vacX + 4);
+    for (const b of bits) R2.drawTrashBit(g, b);
+  }
+  // 가습기
+  const hl = humidLevel();
+  R2.drawHumidifier(g, hl, store.humid.light, tms, humidRefill ? (tms - humidRefill) / 1200 : 0);
+  if (hl > 0 && !humidRefill && tms > nextMist) { nextMist = tms + 260; FX.spawnMist(R2.HUMID.x, R2.HUMID.y - 17, store.humid.light); }
+  R2.drawBall(g, Math.round(ball.x), ball.y, ball.rot);
   R2.drawLitter(g, dirty('litter') && !(anim.litter > 0.6), tms);
   R2.drawBowls(g, dirty('bowls') && !(anim.bowls > 0.6));
   if (anim.cushions !== undefined) { g.globalAlpha = 1 - anim.cushions; R2.drawPillows(g, true); g.globalAlpha = anim.cushions; R2.drawPillows(g, false); g.globalAlpha = 1; }
@@ -542,12 +665,13 @@ function frame(tms) {
 
   cat.draw(g, festive);
 
-  for (const [id, p] of Object.entries(anim)) { const d = R2.MESS[id]; R2.drawTool(g, d.tool, d.pos[0], d.pos[1], p); }
-  if (watering) { const [dx, dy] = R2.PLANTS[watering.id].drop; R2.drawWateringCan(g, dx, dy, (tms - watering.start) / 1300); }
+  for (const [id, p] of Object.entries(anim)) { const d = R2.MESS[id]; R2.drawTool(g, d.tool, id === 'trash' ? vacX : d.pos[0], d.pos[1], id === 'trash' ? 0 : p); }
+  if (watering) { const pl = R2.PLANTS[watering.id]; const [tx, ty] = pl.can(store.plants[watering.id].n); R2.drawWateringCan(g, tx, ty, (tms - watering.start) / 1300, pl.dir); }
 
   // 어둡기 → 불빛
   S.drawShade(g, store, tod, store.fire);
   S.drawGlows(g, store, tod, store.fire, tms);
+  if (store.humid.light && humidLevel() > 0) { g.save(); g.globalCompositeOperation = 'lighter'; R2.drawHumidGlow(g, tms); g.restore(); }
   if (store.torch.hung && store.torch.lit) { g.save(); g.globalCompositeOperation = 'lighter'; R2.drawTorchGlow(g, tms); g.restore(); }
   if (entered) for (const [id, pl] of Object.entries(R2.PLANTS)) if (needsWater(id) && (!watering || watering.id !== id)) R2.drawDropHint(g, pl.drop[0], pl.drop[1], tms + pl.drop[0] * 40);
 
@@ -605,6 +729,7 @@ function syncSoundBtn() {
 }
 soundBtn.addEventListener('click', () => { initAudio(); setMuted(store.sound); syncSoundBtn(); });
 document.getElementById('btn-settings').addEventListener('click', () => { initAudio(); P.openSettings(app); });
+document.getElementById('btn-chat').addEventListener('click', () => { initAudio(); cat.touch(); P.openChat(app); });
 document.getElementById('btn-test').addEventListener('click', () => P.openTest(app));
 function syncTestFlag() { document.getElementById('testflag').hidden = !(testEnabled && T.isTestClock()); }
 
@@ -647,7 +772,8 @@ function afterGreet(first) {
     }
   };
   if (ended() && !store.celebrated) { celebrate(false); return; }
-  if (first) { toast(`방 안의 물건을 눌러 보세요. ${CAT_NAME}도 쓰다듬을 수 있어요.`, 4200); doTest(); return; }
+  speak(say('greet', cat.grow), 3600);
+  if (first) { store.humid = { ...store.humid, refillAt: now() }; toast(`방 안의 물건을 눌러 보세요. ${CAT_NAME}도 쓰다듬을 수 있어요.`, 4200); doTest(); return; }
   const items = [];
   const un = unreadDays();
   if (un.length === 1) items.push(['✉️', T.letterUnlockAt(un[0]) < T.kstDayStart(now()) ? '어젯밤 도착한 편지가 있어요!' : '오늘 밤 도착한 편지가 있어요!']);
@@ -656,6 +782,9 @@ function afterGreet(first) {
   const thirsty = Object.keys(R2.PLANTS).filter(needsWater);
   if (thirsty.length) items.push(['💧', `화분 ${thirsty.length}개가 오늘 물을 기다려요.`]);
   if (faxDiscDay()) items.push(['💿', `팩스에 LP ${faxDiscDay()}가 도착해 있어요.`]);
+  if (humidLevel() <= 0) items.push(['💜', '가습기 물이 다 떨어졌어요. 새 물로 갈아 주세요.']);
+  const gd = T.growDay(now());
+  if (gd > (store.lastGrowDay || 0)) { items.push(['🐈‍⬛', gd === 1 ? `아기 고양이 ${CAT_NAME}가 오늘부터 조금씩 자라요.` : `${CAT_NAME}가 어제보다 조금 더 자랐어요. (Day ${gd})`]); store.lastGrowDay = gd; }
   if (items.length) P.showNotices(items, doTest); else doTest();
 }
 function enableTest() {
@@ -663,7 +792,7 @@ function enableTest() {
   window.__neuru = { cat, app, tap };
   document.getElementById('btn-test').hidden = false;
   syncTestFlag();
-  toast('테스트 모드가 켜졌어요. 오른쪽 아래 벌레 버튼을 눌러 보세요.');
+  toast('테스트 모드가 켜졌어요. 초록 벌레 버튼을 눌러 보세요.');
 }
 
 // ────────── 시작 ──────────

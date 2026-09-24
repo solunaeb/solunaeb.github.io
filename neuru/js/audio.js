@@ -2,7 +2,7 @@
 import { store } from './store.js';
 import { getAudioUrl } from './content.js';
 
-let ctx = null, master = null, sfxBus = null, musicBus = null, noiseBuf = null;
+let ctx = null, master = null, sfxBus = null, musicBus = null, ambBus = null, noiseBuf = null;
 
 export function initAudio() {
   if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
@@ -10,11 +10,22 @@ export function initAudio() {
   master = ctx.createGain();
   master.gain.value = store.sound ? 1 : 0;
   master.connect(ctx.destination);
-  sfxBus = ctx.createGain(); sfxBus.gain.value = 0.55; sfxBus.connect(master);
-  musicBus = ctx.createGain(); musicBus.gain.value = 0.5; musicBus.connect(master);
+  sfxBus = ctx.createGain(); sfxBus.connect(master);
+  musicBus = ctx.createGain(); musicBus.connect(master);
+  ambBus = ctx.createGain(); ambBus.connect(master);
+  applyVolumes();
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
   const ch = noiseBuf.getChannelData(0);
   for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+}
+
+// 소리 크기 (0~1): 효과음 / 음악 / 환경음(비·장작)
+export function volumes() { return { sfx: 0.8, music: 0.8, amb: 0.45, ...(store.vol || {}) }; }
+export function setVolume(kind, v) { store.vol = { ...volumes(), [kind]: v }; applyVolumes(); }
+function applyVolumes() {
+  const v = volumes();
+  if (sfxBus) { sfxBus.gain.value = 0.6 * v.sfx; musicBus.gain.value = 0.55 * v.music; ambBus.gain.value = v.amb; }
+  if (htmlAudio) htmlAudio.volume = v.music;
 }
 
 export function setMuted(muted) {
@@ -87,6 +98,7 @@ export const sfx = {
   drawer() { noise(0.25, { vol: 0.2, filter: 'lowpass', freq: 500, attack: 0.02 }); tone(140, 0.1, { type: 'square', vol: 0.05, at: 0.2 }); },
   ignite() { noise(0.5, { vol: 0.25, freq: 600, sweepTo: 2400, attack: 0.02 }); },
   slurp() { noise(0.35, { vol: 0.18, freq: 1800, sweepTo: 600, q: 2, attack: 0.05 }); },
+  crunch() { noise(0.06, { vol: 0.12, freq: 2600, q: 3 }); noise(0.05, { vol: 0.1, freq: 3200, q: 3, at: 0.12 }); },
   thump() { tone(90, 0.15, { type: 'sine', vol: 0.25, slideTo: 50 }); },
 };
 
@@ -117,8 +129,8 @@ const ambience = {};
 export function setAmbience(name, on) {
   if (!ctx) return;
   if (on && !ambience[name]) {
-    const out = ctx.createGain(); out.gain.value = 0; out.connect(sfxBus);
-    out.gain.setTargetAtTime(name === 'rain' ? 0.12 : 0.18, T(), 0.5);
+    const out = ctx.createGain(); out.gain.value = 0; out.connect(ambBus);
+    out.gain.setTargetAtTime(name === 'rain' ? 0.06 : 0.16, T(), 0.5);
     const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
     const f = ctx.createBiquadFilter();
     if (name === 'rain') { f.type = 'highpass'; f.frequency.value = 1200; }
@@ -153,6 +165,7 @@ export async function playDay(day, onEnd) {
   if (url) {
     htmlAudio = new Audio(url);
     htmlAudio.muted = !store.sound;
+    htmlAudio.volume = volumes().music;
     htmlAudio.onended = () => finish(day);
     htmlAudio.play().catch(() => finish(day));
   } else {

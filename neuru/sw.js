@@ -1,12 +1,12 @@
 // 서비스 워커 — 첫 접속 때 모든 리소스(편지·음원 포함)를 저장해 오프라인에서도 동작
 importScripts('./data/build-info.js');
-const APP_VERSION = 'v1.1.0';
+const APP_VERSION = 'v1.2.0';
 const CACHE = `neuru-${APP_VERSION}-${self.CONTENT_BUILD || 'dev'}`;
 const CORE = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/main.js', './js/config.js', './js/time.js', './js/store.js', './js/content.js', './js/audio.js',
   './js/scene.js', './js/sprites.js', './js/cat.js', './js/effects.js', './js/weather.js', './js/notify.js',
-  './js/ui.js', './js/panels.js', './js/catdraw.js', './js/room2.js',
+  './js/ui.js', './js/panels.js', './js/catdraw.js', './js/room2.js', './js/speech.js', './js/chat.js',
   './fonts/Galmuri11.woff2', './fonts/Galmuri11-Bold.woff2', './fonts/GalmuriMono11.woff2', './fonts/Galmuri9.woff2', './fonts/Galmuri14.woff2',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-180.png', './icons/badge-96.png',
   './data/content.json', './data/build-info.js',

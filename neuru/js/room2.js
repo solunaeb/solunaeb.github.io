@@ -8,13 +8,13 @@ const dith = (g, x, y, w, h, c) => { g.fillStyle = c; for (let j = 0; j < h; j++
 export const MESS = {
   blanket: { label: '담요', tool: 'hand', dur: 800, sfx: 'whoosh', hit: [[106, 140, 56, 20], [136, 152, 42, 46]], pos: [150, 165] },
   cushions: { label: '쿠션', tool: 'hand', dur: 700, sfx: 'whoosh', hit: [[98, 194, 34, 16]], pos: [114, 200] },
-  trash: { label: '러그 위 쓰레기', tool: 'vacuum', dur: 1300, sfx: 'vacuum', hit: [[122, 192, 64, 20], [236, 192, 30, 20]], pos: [190, 206] },
+  trash: { label: '러그 위 쓰레기', tool: 'vacuum', dur: 1400, sfx: 'vacuum', hit: [[122, 192, 64, 20], [236, 192, 30, 20]], pos: [190, 207], sweep: [108, 276] },
   stain: { label: '바닥 얼룩', tool: 'mop', dur: 1100, sfx: 'wipe', hit: [[266, 200, 30, 12]], pos: [280, 208] },
   bowls: { label: '밥그릇', tool: 'sponge', dur: 1000, sfx: 'wipe', hit: [[60, 200, 36, 14]], pos: [76, 207] },
   litter: { label: '화장실', tool: 'scoop', dur: 1000, sfx: 'scoop', hit: [[30, 186, 32, 26]], pos: [46, 203] },
   books: { label: '떨어진 책', tool: 'hand', dur: 800, sfx: 'thump', hit: [[180, 194, 22, 16]], pos: [190, 202] },
   fur: { label: '소파 털뭉치', tool: 'roller', dur: 1000, sfx: 'wipe', hit: [[62, 140, 54, 16]], pos: [88, 150] },
-  papers: { label: '구겨진 종이', tool: 'hand', dur: 700, sfx: 'whoosh', hit: [[196, 118, 26, 15]], pos: [208, 128] },
+  papers: { label: '구겨진 종이', tool: 'hand', dur: 700, sfx: 'whoosh', hit: [[209, 120, 13, 13], [226, 190, 12, 10]], pos: [216, 128] },
   ash: { label: '벽난로 재', tool: 'broom', dur: 1100, sfx: 'wipe', hit: [[314, 204, 34, 12]], pos: [330, 210] },
   soil: { label: '쏟아진 흙', tool: 'broom', dur: 1000, sfx: 'wipe', hit: [[4, 206, 30, 10]], pos: [20, 212] },
   yarn: { label: '털실 뭉치', tool: 'hand', dur: 900, sfx: 'whoosh', hit: [[196, 200, 44, 14]], pos: [218, 207] },
@@ -51,15 +51,17 @@ export function drawPillows(g, messy) {
   R(g, 100, 208, 30, 1, 'rgba(0,0,0,0.35)');
 }
 
+export function drawTrashBit(g, it) {
+  const { x, y } = it;
+  if (it.kind === 0) { ell(g, x, y, 3, 2, '#d8d6cc'); R(g, x - 1, y - 1, 2, 1, '#f4f2ea'); R(g, x + 1, y, 1, 1, '#a8a69c'); }
+  else if (it.kind === 1) { R(g, x - 3, y - 1, 7, 3, '#e05a8a'); R(g, x - 3, y - 1, 7, 1, '#f58ab0'); R(g, x - 4, y, 1, 1, '#c93a6a'); R(g, x + 4, y, 1, 1, '#c93a6a'); }
+  else { dith(g, x - 4, y - 1, 9, 3, '#9a948a'); R(g, x - 2, y - 2, 5, 1, '#b8b2a6'); }
+}
+
 export function drawMessItem(g, id, messAt, t) {
   switch (id) {
     case 'trash':
-      for (const it of trashBits(messAt)) {
-        const { x, y } = it;
-        if (it.kind === 0) { ell(g, x, y, 3, 2, '#d8d6cc'); R(g, x - 1, y - 1, 2, 1, '#f4f2ea'); R(g, x + 1, y, 1, 1, '#a8a69c'); }
-        else if (it.kind === 1) { R(g, x - 3, y - 1, 7, 3, '#e05a8a'); R(g, x - 3, y - 1, 7, 1, '#f58ab0'); R(g, x - 4, y, 1, 1, '#c93a6a'); R(g, x + 4, y, 1, 1, '#c93a6a'); }
-        else { dith(g, x - 4, y - 1, 9, 3, '#9a948a'); R(g, x - 2, y - 2, 5, 1, '#b8b2a6'); }
-      }
+      for (const it of trashBits(messAt)) drawTrashBit(g, it);
       break;
     case 'stain':
       ell(g, 280, 206, 10, 3, '#3a2230'); ell(g, 276, 205, 5, 2, '#4a2a3c'); ell(g, 289, 208, 3, 1, '#3a2230'); R(g, 273, 204, 3, 1, '#6a4a5a');
@@ -75,9 +77,9 @@ export function drawMessItem(g, id, messAt, t) {
       }
       break;
     case 'papers':
-      ell(g, 202, 128, 3, 2, '#e8e4d8'); R(g, 201, 127, 2, 1, '#ffffff'); R(g, 203, 129, 1, 1, '#b8b2a0');
-      ell(g, 210, 129, 3, 2, '#efe6cf'); R(g, 209, 128, 1, 1, '#ffffff'); R(g, 211, 130, 1, 1, '#b8b2a0');
-      ell(g, 216, 127, 2, 2, '#e8e4d8');
+      ell(g, 213, 129, 2, 2, '#e8e4d8'); R(g, 212, 128, 1, 1, '#ffffff'); R(g, 214, 130, 1, 1, '#b8b2a0');
+      ell(g, 218, 128, 2, 2, '#efe6cf'); R(g, 217, 127, 1, 1, '#ffffff');
+      ell(g, 231, 195, 3, 2, '#e8e4d8'); R(g, 230, 194, 2, 1, '#ffffff'); R(g, 232, 196, 1, 1, '#b8b2a0');
       break;
     case 'ash':
       dith(g, 316, 208, 30, 5, '#6e6a66'); dith(g, 318, 207, 20, 5, '#8a8682'); R(g, 322, 211, 3, 1, '#4a4644'); R(g, 334, 209, 2, 1, '#4a4644');
@@ -153,9 +155,9 @@ export function drawTool(g, tool, x, y, p) {
 
 // ─────────── 자라는 화분 (물 21번 → 꽃) ───────────
 export const PLANTS = {
-  rose: { name: '장미', hit: [0, 150, 32, 58], drop: [14, 150] },
-  lisianthus: { name: '리시안셔스', hit: [326, 16, 40, 52], drop: [334, 20] },
-  celosia: { name: '맨드라미', hit: [352, 104, 30, 40], drop: [367, 106] },
+  rose: { name: '장미', meaning: '열렬한 사랑', hit: [0, 150, 32, 58], drop: [14, 150], can: (s) => [14, 186 - Math.round(s * 1.35)], dir: 1 },
+  lisianthus: { name: '리시안셔스', meaning: '변치 않는 사랑', hit: [326, 16, 40, 52], drop: [334, 20], can: () => [346, 21], dir: -1 },
+  celosia: { name: '맨드라미', meaning: '시들지 않는 사랑', hit: [352, 104, 30, 40], drop: [367, 106], can: (s) => [367, 128 - Math.round(s * 0.9)], dir: -1 },
 };
 const GREEN = ['#2c5a2b', '#3e7a3a', '#5d9c49', '#7bb85a'];
 
@@ -259,12 +261,19 @@ export function drawCelosia(g, s, t, watered) {
   if (s >= 21) for (const dx of [-5, 5]) { for (let j = 0; j < 5; j++) R(g, bx + dx - 1, top + 5 - j, 3 - (j > 3 ? 2 : 0), 1, cols[j % 2]); R(g, bx + dx, top + 6, 1, 3, GREEN[1]); }
 }
 
-export function drawWateringCan(g, x, y, p) {
-  const tilt = Math.min(1, p * 3);
-  const cx = x + 6, cy = y - 16;
-  R(g, cx, cy, 9, 6, '#5ab0e0'); R(g, cx, cy, 9, 1, '#8ad0f8'); R(g, cx + 2, cy - 3, 5, 1, '#3a88b8'); R(g, cx + 2, cy - 3, 1, 3, '#3a88b8'); R(g, cx + 6, cy - 3, 1, 3, '#3a88b8');
-  for (let i = 0; i < 5; i++) R(g, cx - 1 - i, cy + 1 + Math.round(i * tilt * 0.7), 1, 1, '#3a88b8');
-  if (p > 0.25 && p < 0.9) for (let i = 0; i < 4; i++) { const k = ((p * 5 + i * 0.25) % 1); R(g, cx - 6 + i % 2, cy + 4 + k * 12, 1, 2, 'rgba(140,210,255,0.9)'); }
+// 물뿌리개: (tx, ty)는 물줄기가 떨어지는 곳, dir 은 물뿌리개 몸통이 놓일 방향
+export function drawWateringCan(g, tx, ty, p, dir = 1) {
+  const tilt = Math.min(1, p * 4);
+  const bx = tx + dir * (6 + 2 * (1 - tilt)), by = ty - 8 - Math.round(3 * (1 - tilt));
+  const x0 = dir > 0 ? bx : bx - 9;
+  R(g, x0, by, 9, 6, '#5ab0e0'); R(g, x0, by, 9, 1, '#8ad0f8'); R(g, x0, by + 5, 9, 1, '#3a88b8');
+  R(g, x0 + 2, by - 3, 5, 1, '#3a88b8'); R(g, x0 + 2, by - 3, 1, 3, '#3a88b8'); R(g, x0 + 6, by - 3, 1, 3, '#3a88b8');
+  for (let i = 0; i < 6; i++) R(g, bx - dir * i, by + 1 + Math.round(i * tilt * 0.9), 1, 1, '#3a88b8');
+  R(g, bx - dir * 6 - (dir > 0 ? 1 : 0), by + 1 + Math.round(5 * tilt * 0.9), 2, 2, '#2f6f98');
+  if (p > 0.2 && p < 0.9) {
+    const sx = bx - dir * 6, sy = by + 3 + Math.round(5 * tilt * 0.9);
+    for (let i = 0; i < 4; i++) { const k = (p * 5 + i * 0.25) % 1; R(g, sx + (i % 2) - (dir > 0 ? 1 : 0), sy + k * Math.max(4, ty - sy), 1, 2, 'rgba(140,210,255,0.9)'); }
+  }
 }
 
 export function drawDropHint(g, x, y, t) {
@@ -323,4 +332,46 @@ export function drawRamen(g, t, bites) {
 // 액자 사진 (도트로 줄여 그린 캔버스)
 export function drawFramePhoto(g, img) {
   if (img) g.drawImage(img, 74, 46);
+}
+
+// ─────────── 가습기 (보라 무드등, 오리지널 디자인) ───────────
+export const HUMID = { x: 203, y: 131, hit: [196, 112, 15, 20] };
+export function drawHumidifier(g, level, light, t, refill) {
+  const { x, y } = HUMID;
+  const lift = refill > 0 && refill < 1 ? Math.round(Math.sin(refill * Math.PI) * 6) : 0;
+  // 받침
+  R(g, x - 6, y - 3, 13, 3, '#6a4aa8'); R(g, x - 6, y - 3, 13, 1, '#8a6ac8'); R(g, x - 5, y - 1, 11, 1, 'rgba(0,0,0,0.3)');
+  // 물통 (동그란 몸통 + 작은 귀) — 들어 올리며 물을 갈아 줌
+  const ty = y - 4 - lift;
+  ell(g, x, ty - 5, 5, 5, light ? '#b89af0' : '#9a80d0');
+  R(g, x - 4, ty - 12, 2, 3, light ? '#b89af0' : '#9a80d0'); R(g, x + 3, ty - 12, 2, 3, light ? '#b89af0' : '#9a80d0');
+  R(g, x - 4, ty - 11, 1, 1, '#e8a8c8'); R(g, x + 4, ty - 11, 1, 1, '#e8a8c8');
+  // 물 높이 창
+  const h = Math.round(level * 6);
+  R(g, x - 3, ty - 8, 7, 6, '#4a3a78');
+  if (h > 0) R(g, x - 3, ty - 2 - h, 7, h, light ? '#c8e8ff' : '#8ab8e0');
+  R(g, x - 3, ty - 8, 1, 6, 'rgba(255,255,255,0.25)');
+  // 얼굴 (작은 눈 + 볼터치)
+  R(g, x - 2, ty - 6, 1, 1, '#2a1a48'); R(g, x + 2, ty - 6, 1, 1, '#2a1a48');
+  R(g, x - 4, ty - 4, 1, 1, '#f0a0c0'); R(g, x + 4, ty - 4, 1, 1, '#f0a0c0');
+  // 분무구
+  R(g, x - 1, ty - 11, 3, 1, '#6a4aa8');
+  // 물이 없으면 빨간 불
+  R(g, x + 5, y - 2, 1, 1, level <= 0 ? (Math.floor(t / 400) % 2 ? '#ff5a5a' : '#6a2020') : '#7fe0a0');
+}
+export function drawHumidGlow(g, t) {
+  const { x, y } = HUMID;
+  const f = 0.9 + Math.sin(t / 1200) * 0.1;
+  const gr = g.createRadialGradient(x, y - 10, 0, x, y - 10, 34);
+  gr.addColorStop(0, `rgba(170,120,255,${0.3 * f})`); gr.addColorStop(1, 'rgba(170,120,255,0)');
+  g.fillStyle = gr; g.fillRect(x - 34, y - 44, 68, 68);
+}
+
+// ─────────── 느루 장난감 털 공 ───────────
+export function drawBall(g, x, y, rot) {
+  ell(g, x, y - 3, 3, 3, '#7ac8e8');
+  R(g, x - 2, y - 5, 2, 1, '#b8e8ff');
+  const a = rot; R(g, Math.round(x + Math.cos(a) * 2), Math.round(y - 3 + Math.sin(a) * 2), 1, 1, '#3a88b8');
+  R(g, Math.round(x - Math.cos(a) * 2), Math.round(y - 3 - Math.sin(a) * 2), 1, 1, '#3a88b8');
+  R(g, x - 2, y, 5, 1, 'rgba(0,0,0,0.3)');
 }

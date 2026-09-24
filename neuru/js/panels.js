@@ -6,6 +6,9 @@ import { kst, letterUnlockAt } from './time.js';
 import { TOTAL_DAYS, FIRST_LETTER_AT, END_AT, TEST_PASSWORD_HASH, VAPID_PUBLIC_KEY, CAT_NAME } from './config.js';
 import { WEATHER_KINDS, WEATHER_LABEL } from './weather.js';
 import { photos, getPhotoUrl } from './content.js';
+import { askNeuru, chatLog, clearChat, aiSettings, saveAiSettings, testAi } from './chat.js';
+import { stageOf, STAGE_LABEL } from './speech.js';
+import { volumes, setVolume } from './audio.js';
 
 const dateOf = (day) => { const k = kst(letterUnlockAt(day)); return { mo: k.mo, d: k.d }; };
 const fmtDate = (day) => { const { mo, d } = dateOf(day); return `${mo}월 ${d}일`; };
@@ -131,7 +134,27 @@ export function openSettings(app) {
 
     // 소리
     const soundBtn = h('button', { class: 'pix-btn small', onclick: () => { app.toggleSound(); soundBtn.textContent = app.store.sound ? '소리 끄기' : '소리 켜기'; } }, app.store.sound ? '소리 끄기' : '소리 켜기');
-    sc.append(h('div', { class: 'set-sec' }, h('h3', {}, '소리'), h('div', { class: 'row' }, soundBtn)));
+    const vol = volumes();
+    const slider = (kind, label) => {
+      const val = h('span', { class: 'pill' }, Math.round(vol[kind] * 100) + '%');
+      const r = h('input', { type: 'range', min: 0, max: 100, value: Math.round(vol[kind] * 100), 'aria-label': label + ' 크기' });
+      r.addEventListener('input', () => { setVolume(kind, r.value / 100); val.textContent = r.value + '%'; });
+      return h('div', { class: 'row vol' }, h('span', { class: 'vlabel' }, label), r, val);
+    };
+    sc.append(h('div', { class: 'set-sec' }, h('h3', {}, '소리'), h('div', { class: 'row' }, soundBtn),
+      slider('sfx', '효과음'), slider('music', '음악'), slider('amb', '빗소리·장작')));
+
+    // 느루와 대화 (AI)
+    const ai = aiSettings();
+    const keyIn = h('input', { type: 'password', value: ai.key, placeholder: 'AIza… 로 시작하는 키', autocomplete: 'off', 'aria-label': 'Google AI Studio API 키' });
+    const modelIn = h('input', { type: 'text', value: ai.model, 'aria-label': '모델 이름' });
+    const aiState = h('span', { class: 'pill ' + (ai.key ? 'ok' : 'warn') }, ai.key ? '키가 저장되어 있어요' : '키 없음 (간단한 대화만)');
+    sc.append(h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}와 대화 (AI)`),
+      h('p', { class: 'sub' }, 'Google AI Studio 에서 무료로 받은 API 키를 넣으면 느루와 자유롭게 대화할 수 있어요. 키는 이 기기에만 저장돼요.'),
+      keyIn, h('div', { class: 'row' }, h('span', { class: 'sub' }, '모델'), modelIn),
+      h('div', { class: 'row' }, aiState,
+        h('button', { class: 'pix-btn small', onclick: () => { saveAiSettings({ key: keyIn.value.trim(), model: modelIn.value.trim() || 'gemini-flash-latest' }); toast('저장했어요'); openSettings(app); } }, '저장'),
+        h('button', { class: 'pix-btn small', onclick: async () => { try { const t = await testAi({ key: keyIn.value.trim(), model: modelIn.value.trim() || 'gemini-flash-latest' }); toast('연결 성공! ' + t.slice(0, 40)); } catch (e) { toast('연결 실패: 키나 모델 이름을 확인해 주세요 (' + e.message + ')', 4200); } } }, '연결 확인'))));
 
     // 알림
     const perm = app.permission();
@@ -245,7 +268,11 @@ export function openTest(app) {
 
     // 기타
     sc.append(h('div', { class: 'set-sec' }, h('h3', {}, '기타'),
-      h('div', { class: 'row' }, h('button', { class: 'pix-btn small', onclick: () => { app.remess(); toast('방을 새로 어질렀어요'); } }, '방 다시 어지르기')),
+      h('div', { class: 'row' },
+        h('button', { class: 'pix-btn small', onclick: () => { app.remess(); toast('방을 새로 어질렀어요'); } }, '방 다시 어지르기'),
+        h('button', { class: 'pix-btn small', onclick: () => { app.emptyHumid(); toast('가습기 물을 비웠어요'); } }, '가습기 물 비우기'),
+        h('button', { class: 'pix-btn small', onclick: () => { closeModal(true); app.sleepNow(); } }, '느루 재우기'),
+        h('button', { class: 'pix-btn small', onclick: () => { app.loveTest(); } }, '3시간 알림 미리 보기')),
       h('div', { class: 'row' },
         h('button', { class: 'pix-btn small', onclick: () => app.testNotify() }, '알림 테스트'),
         h('button', { class: 'pix-btn small', onclick: () => { closeModal(true); app.celebrate(true); } }, '축하 연출 보기'),
@@ -373,5 +400,41 @@ export async function openFrame(app) {
     root.append(h('h2', { id: 'sheet-title' }, '액자'));
     if (!f) { root.append(h('p', { class: 'sub' }, '언젠가 같이 가 보고 싶은 풍경이에요.')); return; }
     root.append(photoViewer([f], ''));
+  });
+}
+
+// ── 느루와 대화 ──
+export function openChat(app) {
+  const grow = app.grow();
+  openModal((root) => {
+    const st = stageOf(grow);
+    root.append(h('h2', { id: 'sheet-title' }, `${CAT_NAME}와 이야기하기`),
+      h('p', { class: 'sub' }, `${STAGE_LABEL[st]} ${CAT_NAME}${app.growDay() ? ` · Day ${app.growDay()}` : ''} — 자랄수록 사랑에 대해 더 깊이 이야기해요.`));
+    const list = h('div', { class: 'chat scroll', role: 'log', 'aria-live': 'polite' });
+    const add = (role, text) => { const b = h('div', { class: 'msg ' + role }, text); list.append(b); list.scrollTop = list.scrollHeight; return b; };
+    const log = chatLog();
+    if (!log.length) add('neuru', app.sayLine('greet'));
+    log.slice(-30).forEach(m => add(m.role, m.text));
+    const input = h('input', { type: 'text', placeholder: '느루에게 말 걸기…', maxlength: 300, 'aria-label': '메시지' });
+    const send = h('button', { class: 'pix-btn' }, '보내기');
+    let busy = false;
+    const go = async () => {
+      const text = input.value.trim();
+      if (!text || busy) return;
+      busy = true; send.disabled = true; input.value = '';
+      add('me', text);
+      const thinking = add('neuru thinking', '…');
+      app.catListen();
+      const { reply } = await askNeuru(text, app.chatContext());
+      thinking.remove();
+      add('neuru', reply);
+      app.catReply(reply);
+      busy = false; send.disabled = false; input.focus();
+    };
+    send.onclick = go;
+    input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) go(); });
+    root.append(list, h('div', { class: 'row chat-in' }, input, send),
+      h('div', { class: 'row' }, h('button', { class: 'pix-btn ghost small', onclick: () => { if (confirm('대화 기록을 지울까요?')) { clearChat(); openChat(app); } } }, '대화 기록 지우기')));
+    setTimeout(() => input.focus(), 60);
   });
 }

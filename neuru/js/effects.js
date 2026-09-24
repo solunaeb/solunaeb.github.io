@@ -17,6 +17,15 @@ export function spawnNote(x, y) {
 export function spawnPuff(x, y, n = 6, col = '#cfc8bc') {
   for (let i = 0; i < n; i++) parts.push({ kind: 'puff', x: x + (Math.random() - 0.5) * 10, y, vx: (Math.random() - 0.5) * 20, vy: -8 - Math.random() * 10, life: 0.6, age: 0, col });
 }
+export function spawnZ(x, y) {
+  parts.push({ kind: 'z', x, y, vx: 4, vy: -6, life: 2.4, age: 0, col: '#cfd8ff' });
+}
+export function spawnMist(x, y, purple) {
+  parts.push({ kind: 'mist', x: x + (Math.random() - 0.5) * 2, y, vx: (Math.random() - 0.5) * 3, vy: -7 - Math.random() * 4, life: 1.8, age: 0, col: purple ? 'rgba(220,200,255,0.55)' : 'rgba(235,240,250,0.5)' });
+}
+export function spawnCrumbs(x, y) {
+  for (let i = 0; i < 3; i++) parts.push({ kind: 'puff', x: x + (Math.random() - 0.5) * 6, y, vx: (Math.random() - 0.5) * 16, vy: -10 - Math.random() * 8, life: 0.45, age: 0, col: '#b07a3a' });
+}
 export function spawnConfetti(n = 80) {
   const cols = ['#e05a5a', '#f2c14e', '#5ab0e0', '#7ad08a', '#c97ad8', '#ffffff'];
   for (let i = 0; i < n; i++) parts.push({ kind: 'conf', x: Math.random() * W, y: -Math.random() * 60, vx: (Math.random() - 0.5) * 20, vy: 20 + Math.random() * 30, life: 8, age: 0, col: cols[i % cols.length], ph: Math.random() * 6 });
@@ -77,6 +86,8 @@ export function drawEffects(g) {
     else if (p.kind === 'note') NOTE.forEach((r, j) => { for (let i = 0; i < 4; i++) if (r[i] === 'x') g.fillRect(x + i, y + j, 1, 1); });
     else if (p.kind === 'spark') { const big = Math.floor(p.age * 10) % 2 === 0; g.fillRect(x, y, 1, 1); if (big) { g.fillRect(x - 1, y, 3, 1); g.fillRect(x, y - 1, 1, 3); } }
     else if (p.kind === 'puff') { g.fillRect(x, y, 2, 2); }
+    else if (p.kind === 'mist') { const r = 1 + Math.floor(p.age * 1.5); g.fillRect(x - r + 1, y, r * 2 - 1, r); }
+    else if (p.kind === 'z') { const s = p.age > 1 ? 4 : 3; g.fillRect(x, y, s, 1); g.fillRect(x + s - 2, y + 1, 1, 1); if (s > 3) g.fillRect(x + 1, y + 2, 1, 1); g.fillRect(x, y + s - 1, s, 1); }
     else if (p.kind === 'conf') g.fillRect(x, y, Math.floor(p.age * 6 + p.ph) % 2 ? 2 : 1, Math.floor(p.age * 6 + p.ph) % 2 ? 1 : 2);
   }
   g.globalAlpha = 1;

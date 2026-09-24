@@ -122,6 +122,7 @@ button { font: inherit; color: inherit; }
 .ico { width: 20px; height: 20px; display: block; image-rendering: pixelated; background-repeat: no-repeat; background-size: 100% 100%; }
 .ico-sound { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill='%23f3e4c0' d='M1 3h2v4H1zM3 3h1v4H3zM4 2h1v6H4zM5 1h1v8H5zM7 3h1v4H7zM8 2h1v1H8zM8 7h1v1H8zM9 3h1v4H9z'/%3E%3C/svg%3E"); }
 .muted .ico-sound { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill='%23c9b690' d='M1 3h2v4H1zM3 3h1v4H3zM4 2h1v6H4zM5 1h1v8H5z'/%3E%3Cpath fill='%23e2566a' d='M7 3h1v1H7zM8 4h1v2H8zM9 3h1v1H9zM7 6h1v1H7zM9 6h1v1H9z'/%3E%3C/svg%3E"); }
+.ico-chat { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill='%23f3e4c0' d='M1 1h8v1H1zM0 2h1v4H0zM9 2h1v4H9zM1 6h3v1H1zM6 6h3v1H6zM3 7h2v1H3zM3 8h1v1H3z'/%3E%3Cpath fill='%23e2566a' d='M3 3h1v1H3zM5 3h1v1H5zM2 4h1v1H2zM6 4h1v1H6zM3 4h3v1H3zM4 5h1v1H4z'/%3E%3C/svg%3E"); }
 .ico-gear { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill='%23f3e4c0' d='M4 0h2v2H4zM4 8h2v2H4zM0 4h2v2H0zM8 4h2v2H8zM1 1h2v2H1zM7 1h2v2H7zM1 7h2v2H1zM7 7h2v2H7zM2 2h6v6H2z'/%3E%3Cpath fill='%235b3420' d='M4 4h2v2H4z'/%3E%3C/svg%3E"); }
 .ico-bug { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill='%2362e07c' d='M3 1h1v1H3zM6 1h1v1H6zM3 2h4v2H3zM2 4h6v4H2zM3 8h4v1H3zM0 4h2v1H0zM8 4h2v1H8zM0 7h2v1H0zM8 7h2v1H8z'/%3E%3C/svg%3E"); }
 
@@ -239,6 +240,27 @@ textarea, input, select {
 }
 textarea { font-family: 'GalmuriMono11', monospace; font-size: 12px; min-height: 80px; resize: vertical; }
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--amber); }
+
+/* 느루 말풍선 */
+#bubble {
+  position: fixed; z-index: 6; pointer-events: none; max-width: min(260px, 70vw);
+  background: #fff6dc; color: #2b2622; padding: 8px 11px; font-size: 14px; line-height: 1.5;
+  transform: translate(-50%, -100%); word-break: keep-all;
+  box-shadow: 0 -3px 0 #2b2622, 0 3px 0 #2b2622, -3px 0 0 #2b2622, 3px 0 0 #2b2622;
+  animation: pop .18s steps(3);
+}
+#bubble::after { content: ''; position: absolute; left: 50%; bottom: -9px; width: 6px; height: 6px; background: #fff6dc; box-shadow: 3px 3px 0 #2b2622, -3px 0 0 #2b2622, 3px 0 0 #2b2622, 0 3px 0 #2b2622; transform: translateX(-50%); }
+@keyframes pop { from { transform: translate(-50%, -90%) scale(.8); opacity: 0; } }
+
+/* 대화 */
+.chat { display: flex; flex-direction: column; gap: 8px; min-height: 220px; max-height: 50dvh; padding: 4px; background: #2a180d; box-shadow: inset 0 0 0 3px #26150b; }
+.msg { max-width: 82%; padding: 8px 11px; font-size: 15px; line-height: 1.55; word-break: keep-all; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.msg.me { align-self: flex-end; background: #7a3a26; color: #ffe9c8; }
+.msg.neuru { align-self: flex-start; background: #fff6dc; color: #2b2622; }
+.msg.thinking { opacity: .7; animation: blink 1s steps(2) infinite; }
+.chat-in input { flex: 1; min-width: 0; }
+.row.vol { flex-wrap: nowrap; }
+.row.vol .vlabel { width: 7em; flex: none; font-size: 14px; }
 
 /* 사진 보기 */
 .viewer { display: flex; flex-direction: column; gap: 10px; outline: none; min-height: 0; }

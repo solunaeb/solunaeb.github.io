@@ -13,6 +13,16 @@ export const TOTAL_DAYS = 21;
 // 카운트다운 목표 (수료일). 이 시각이 지나면 축하 모드로 바뀝니다.
 export const END_AT = Date.parse('2026-11-19T00:00:00+09:00');
 
+// 느루 성장·화분 물 주기 시작 (이때부터 수료까지 21일 동안 아기 고양이 → 어른 고양이)
+export const GROW_START = Date.parse('2026-10-29T00:00:00+09:00');
+
+// 느루가 "보고 싶어!" 같은 말을 전하는 시각 (KST 시, 3시간 간격)
+export const LOVE_HOURS = [9, 12, 15, 18, 21];
+
+// 느루가 대화에서 부를 이름 (비워 두면 "너" / "그 사람")
+export const HER_NAME = '';
+export const HIS_NAME = '';
+
 // 방이 어질러지는 시각 (KST 시)
 export const MESS_HOURS = [10, 22];
 

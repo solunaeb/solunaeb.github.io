@@ -1,5 +1,5 @@
 // 시간 검증(하이브리드) + 일정 계산
-import { FIRST_LETTER_AT, TOTAL_DAYS, END_AT, MESS_HOURS, OFFLINE_TRUST_MS, KST_OFFSET_MS } from './config.js';
+import { FIRST_LETTER_AT, TOTAL_DAYS, END_AT, MESS_HOURS, OFFLINE_TRUST_MS, KST_OFFSET_MS, GROW_START, LOVE_HOURS } from './config.js';
 
 const DAY = 86400000;
 const HOUR = 3600000;
@@ -105,6 +105,12 @@ export function upcomingEvents(t, withinMs = DAY) {
       if (at > t && at - t <= withinMs && at < END_AT) out.push({ at, type: 'mess' });
     }
   }
+  for (let off = 0; off <= 1; off++) {
+    for (const h of LOVE_HOURS) {
+      const at = start + off * DAY + h * HOUR;
+      if (at > t && at - t <= withinMs && at >= GROW_START && at < END_AT) out.push({ at, type: 'love' });
+    }
+  }
   for (let d = 1; d <= TOTAL_DAYS; d++) {
     const at = letterUnlockAt(d);
     if (at > t && at - t <= withinMs) out.push({ at, type: 'letter', day: d });
@@ -114,3 +120,7 @@ export function upcomingEvents(t, withinMs = DAY) {
 }
 
 export { DAY, HOUR };
+
+// 느루 성장 (0 = 아기 고양이, 1 = 어른 고양이)
+export function growthAt(t) { return Math.max(0, Math.min(1, (t - GROW_START) / (END_AT - GROW_START))); }
+export function growDay(t) { return t < GROW_START ? 0 : Math.min(TOTAL_DAYS, Math.floor((t - GROW_START) / DAY) + 1); }

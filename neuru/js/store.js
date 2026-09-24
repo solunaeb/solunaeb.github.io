@@ -9,6 +9,9 @@ const defaults = () => ({
   plants: { rose: { n: 0, last: '' }, lisianthus: { n: 0, last: '' }, celosia: { n: 0, last: '' } }, // 물 준 횟수, 마지막 날짜
   torch: { hung: false, lit: false },
   ramen: { until: 0, bites: 0 },
+  humid: { refillAt: 0, light: true },
+  vol: { sfx: 0.8, music: 0.8, amb: 0.45 },
+  lastGrowDay: 0,
   fire: false,
   lampFloor: true,
   lampWall: true,

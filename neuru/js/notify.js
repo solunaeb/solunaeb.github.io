@@ -2,6 +2,7 @@
 import { VAPID_PUBLIC_KEY, CAT_NAME } from './config.js';
 import { store, persist } from './store.js';
 import { kst } from './time.js';
+import { lovePing } from './speech.js';
 
 let reg = null;
 
@@ -13,6 +14,7 @@ export const MESSAGES = {
 
 export function eventTag(ev) {
   if (ev.type === 'letter') return 'letter-' + ev.day;
+  if (ev.type === 'love') { const k = kst(ev.at); return `love-${k.mo}${String(k.d).padStart(2, '0')}-${k.h}`; }
   if (ev.type === 'end') return 'end';
   const k = kst(ev.at);
   return `mess-${k.y}${String(k.mo).padStart(2, '0')}${String(k.d).padStart(2, '0')}-${k.h}`;
@@ -58,7 +60,7 @@ export async function systemNotify(kind, tag) {
   if (store.notified.includes(tag)) return;
   store.notified.push(tag); persist();
   if (permission() !== 'granted') return;
-  const m = MESSAGES[kind];
+  const m = kind === 'love' ? { title: '널 사랑할고양', body: lovePing(Math.floor(Date.now() / 3600000)) } : MESSAGES[kind];
   try {
     const r = reg || await navigator.serviceWorker.ready;
     await r.showNotification(m.title, { body: m.body, tag, icon: './icons/icon-192.png', badge: './icons/badge-96.png', data: { url: './' } });
