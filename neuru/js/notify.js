@@ -2,7 +2,6 @@
 import { VAPID_PUBLIC_KEY, CAT_NAME } from './config.js';
 import { store, persist } from './store.js';
 import { kst, isTestClock } from './time.js';
-import { lovePing } from './speech.js';
 
 let reg = null;
 
@@ -15,7 +14,7 @@ export const MESSAGES = {
 
 export function eventTag(ev) {
   if (ev.type === 'letter') return 'letter-' + ev.day;
-  if (ev.type === 'love') { const k = kst(ev.at); return `love-${k.mo}${String(k.d).padStart(2, '0')}-${k.h}`; }
+  if (ev.type === 'love') { const k = kst(ev.at); return `love-${k.mo}${String(k.d).padStart(2, '0')}-${String(k.h).padStart(2, '0')}${String(k.mi).padStart(2, '0')}`; }
   if (ev.type === 'end') return 'end';
   const k = kst(ev.at);
   return `mess-${k.y}${String(k.mo).padStart(2, '0')}${String(k.d).padStart(2, '0')}-${k.h}`;
@@ -75,6 +74,8 @@ export async function systemNotify(kind, tag, body) {
   };
   try {
     const r = reg || await navigator.serviceWorker.ready;
+    // 웹 푸시가 같은 알림을 이미 띄웠으면 두 번 울리지 않기
+    if (!isTestClock() && (await r.getNotifications({ tag })).length) return 'dup';
     await r.showNotification(m.title, opts);
     return 'shown';
   } catch {

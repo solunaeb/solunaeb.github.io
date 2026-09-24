@@ -279,7 +279,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px
 .msg.thinking { opacity: .7; animation: blink 1s steps(2) infinite; }
 .chat-in input { flex: 1; min-width: 0; }
 .row.vol { flex-wrap: nowrap; }
-.row.vol .vlabel { width: 7em; flex: none; font-size: 14px; }
+.row.vol .vlabel, .set-sec .vlabel { width: 7em; flex: none; font-size: 14px; }
+.set-sec select { width: auto; }
+.set-sec input[type=checkbox] { width: 20px; height: 20px; accent-color: #62e07c; box-shadow: none; }
 
 /* 사진 보기 */
 .viewer { display: flex; flex-direction: column; gap: 10px; outline: none; min-height: 0; }

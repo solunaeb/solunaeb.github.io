@@ -155,7 +155,7 @@ export function openSettings(app) {
       h('div', { class: 'row' }, h('span', { class: 'pill ' + permLabel[1] }, permLabel[0])));
     if (perm === 'default') notif.append(h('div', { class: 'row' }, h('button', { class: 'pix-btn small', onclick: async () => { await app.requestPermission(); openSettings(app); } }, '알림 켜기')));
     if (perm === 'denied') notif.append(h('p', { class: 'sub' }, '주소창 왼쪽의 자물쇠(또는 사이트 정보) 아이콘 → 알림 → 허용으로 바꾼 뒤 앱을 다시 열어 주세요.'));
-    notif.append(h('p', { class: 'sub' }, `청소 시간(오전·오후 10시), 편지 도착(밤 11시), ${CAT_NAME}의 한마디(오전 9시부터 3시간마다)를 알려 드려요.`));
+    notif.append(h('p', { class: 'sub' }, `청소 시간(오전·오후 10시), 편지 도착(밤 11시), ${CAT_NAME}의 한마디(아래에서 간격 설정)를 알려 드려요.`));
     if (perm === 'granted') notif.append(h('div', { class: 'row' }, h('button', { class: 'pix-btn small', onclick: () => app.testNotify() }, 'Windows 알림 시험하기')));
     notif.append(h('p', { class: 'sub' }, '시험 알림이 화면 오른쪽 아래에 안 뜨면 (Windows)'),
       h('ol', {},
@@ -176,6 +176,7 @@ export function openSettings(app) {
       notif.append(h('p', { class: 'sub' }, '앱이 꺼져 있어도 알림을 받으려면, 이 코드를 앱을 만든 사람에게 한 번만 보내 주세요.'));
     }
     sc.append(notif);
+    sc.append(loveSection(app));
 
     // 설치
     const inst = h('div', { class: 'set-sec' }, h('h3', {}, '앱으로 설치하기'));
@@ -203,6 +204,38 @@ export function openSettings(app) {
     sc.append(h('div', { class: 'set-sec' }, h('h3', {}, '시간 확인'),
       h('div', { class: 'row' }, h('span', { class: 'pill ' + (st === 'online' ? 'ok' : st === 'test' ? 'warn' : 'warn') }, { online: '인터넷 시간으로 확인됨', offline: '오프라인 (마지막 확인 시간 기준)', unverified: '아직 확인 전', test: '테스트 시계 사용 중' }[st]))));
   });
+}
+
+// ── 느루의 한마디 설정 (간격 30분 ~ 3시간, 받는 시간대) ──
+function loveSection(app) {
+  const cfg = { on: true, every: 60, from: 9, to: 22, ...(app.store.love || {}) };
+  const EVERY = [[30, '30분'], [60, '1시간'], [90, '1시간 30분'], [120, '2시간'], [150, '2시간 30분'], [180, '3시간']];
+  const hourLabel = (x) => x === 24 ? '밤 12시' : x < 12 ? `오전 ${x}시` : x === 12 ? '낮 12시' : `오후 ${x - 12}시`;
+  const on = h('input', { type: 'checkbox', 'aria-label': `${CAT_NAME}의 한마디 받기` }); on.checked = cfg.on;
+  const every = h('select', { 'aria-label': '알림 간격' }, EVERY.map(([v, l]) => h('option', { value: v }, l))); every.value = cfg.every;
+  const from = h('select', { 'aria-label': '시작 시각' }, [6, 7, 8, 9, 10, 11, 12].map(v => h('option', { value: v }, hourLabel(v)))); from.value = cfg.from;
+  const to = h('select', { 'aria-label': '끝 시각' }, [18, 19, 20, 21, 22, 23, 24].map(v => h('option', { value: v }, hourLabel(v)))); to.value = cfg.to;
+  const preview = h('p', { class: 'sub' });
+  const fmt = (m) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+  const refresh = () => {
+    const c = { on: on.checked, every: +every.value, from: +from.value, to: +to.value };
+    app.setLove(c);
+    [every, from, to].forEach(el => { el.disabled = !c.on; });
+    if (!c.on) { preview.textContent = '꺼져 있어요.'; return; }
+    const times = [];
+    for (let m = c.from * 60; m <= c.to * 60; m += c.every) times.push(fmt(m));
+    preview.textContent = `하루 ${times.length}번: ${times.length > 12 ? times.slice(0, 6).join(', ') + ' … ' + times.slice(-2).join(', ') : times.join(', ')}`;
+  };
+  [on, every, from, to].forEach(el => el.addEventListener('change', refresh));
+  refresh();
+  return h('div', { class: 'set-sec' }, h('h3', {}, `${CAT_NAME}의 한마디`),
+    h('p', { class: 'sub' }, '"사랑해!", "보고 싶어!" 같은 말을 정해 둔 간격마다 알림으로 보내요.'),
+    h('label', { class: 'row' }, on, h('span', {}, '받기')),
+    h('div', { class: 'row' }, h('span', { class: 'vlabel' }, '간격'), every),
+    h('div', { class: 'row' }, h('span', { class: 'vlabel' }, '시간대'), from, h('span', {}, '~'), to),
+    preview,
+    h('div', { class: 'row' }, h('button', { class: 'pix-btn small', onclick: () => { closeModal(true); app.loveTest(); } }, '지금 하나 받아 보기')),
+    VAPID_PUBLIC_KEY ? h('p', { class: 'sub' }, '앱이 완전히 꺼져 있을 때 오는 알림(웹 푸시)은 오전 9시부터 3시간 간격으로 고정이에요.') : null);
 }
 
 // ── 테스트 모드 ──

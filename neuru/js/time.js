@@ -1,5 +1,5 @@
 // 시간 검증(하이브리드) + 일정 계산
-import { FIRST_LETTER_AT, TOTAL_DAYS, END_AT, MESS_HOURS, OFFLINE_TRUST_MS, KST_OFFSET_MS, GROW_START, LOVE_HOURS } from './config.js';
+import { FIRST_LETTER_AT, TOTAL_DAYS, END_AT, MESS_HOURS, OFFLINE_TRUST_MS, KST_OFFSET_MS, GROW_START, LOVE_DEFAULT } from './config.js';
 
 const DAY = 86400000;
 const HOUR = 3600000;
@@ -96,7 +96,17 @@ export function latestMessAt(t) {
 }
 
 // 다음 "사건" 시각 목록 (알림 스케줄러용)
-export function upcomingEvents(t, withinMs = DAY) {
+// 하루 중 "느루의 한마디" 시각들 (KST 기준, dayStart 는 그날 0시)
+export function loveSlots(dayStart, cfg = LOVE_DEFAULT) {
+  const c = { ...LOVE_DEFAULT, ...(cfg || {}) };
+  if (!c.on) return [];
+  const every = Math.min(180, Math.max(30, +c.every || 60)) * 60000;
+  const out = [];
+  for (let at = dayStart + c.from * HOUR; at <= dayStart + c.to * HOUR; at += every) out.push(at);
+  return out;
+}
+
+export function upcomingEvents(t, withinMs = DAY, loveCfg = LOVE_DEFAULT) {
   const out = [];
   const start = kstDayStart(t);
   for (let off = 0; off <= 1; off++) {
@@ -106,8 +116,7 @@ export function upcomingEvents(t, withinMs = DAY) {
     }
   }
   for (let off = 0; off <= 1; off++) {
-    for (const h of LOVE_HOURS) {
-      const at = start + off * DAY + h * HOUR;
+    for (const at of loveSlots(start + off * DAY, loveCfg)) {
       if (at > t && at - t <= withinMs && at >= GROW_START && at < END_AT) out.push({ at, type: 'love' });
     }
   }
@@ -116,7 +125,9 @@ export function upcomingEvents(t, withinMs = DAY) {
     if (at > t && at - t <= withinMs) out.push({ at, type: 'letter', day: d });
   }
   if (END_AT > t && END_AT - t <= withinMs) out.push({ at: END_AT, type: 'end' });
-  return out.sort((a, b) => a.at - b.at);
+  // 청소·편지·수료 알림과 5분 안으로 겹치는 한마디는 건너뛰기 (중요한 알림이 가려지지 않게)
+  const big = out.filter(e => e.type !== 'love').map(e => e.at);
+  return out.filter(e => e.type !== 'love' || !big.some(b => Math.abs(b - e.at) < 5 * 60000)).sort((a, b) => a.at - b.at);
 }
 
 export { DAY, HOUR };

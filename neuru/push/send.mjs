@@ -14,12 +14,7 @@ const MSG = {
   end: { title: '널 사랑할고양', body: '🎉 드디어 오늘이에요! 21일의 기다림이 끝났어요.' },
   test: { title: '널 사랑할고양', body: '🔔 푸시 알림 테스트예요. 잘 도착했나요?' },
 };
-// 3시간마다 느루가 전하는 말 (js/speech.js 의 LOVE_PINGS 와 같은 내용)
-const LOVE = [
-  '보고 싶어! 🐾', '사랑해! 오늘도 네 편이야 💗', '밥은 먹었어? 나는 네 생각 먹는 중!', '지금 이 순간에도 누군가 널 생각하고 있어 💌',
-  '하루에 한 칸씩, 만날 날이 가까워지고 있어!', '오늘도 잘하고 있어. 꼭 안아 줄게 🫂', '보고 싶다는 건 사랑한다는 뜻이래 💞', '창밖 하늘 한번 봐 줘. 같은 하늘 아래 있어 ☁️',
-  '물 한 잔 마시고, 기지개 한 번! 느루도 같이 할게', '사랑은 기다림 속에서도 자라! 🌱', '잠깐 쉬어 가자. 느루가 옆에 있어', '오늘의 너도 사랑스러워 ✨',
-];
+import { loveLine } from '../js/speech.js';   // 앱과 같은 문구 목록
 const LOVE_HOURS = [9, 12, 15, 18, 21];
 
 // 어떤 cron 이 실행했는지로 목표 시각을 정함 (UTC 기준 cron, 목표는 30분 뒤)
@@ -56,6 +51,7 @@ function pickEvent() {
 }
 
 function inPeriod(ev) {
+  if (process.env.MANUAL_EVENT) return true;   // 직접 실행(Run workflow)은 언제든 보냄
   if (ev.type === 'test') return true;
   if (ev.type === 'end') return ev.at === END_AT;
   if (ev.type === 'letter') return ev.at >= FIRST_LETTER_AT && ev.at < END_AT;
@@ -67,7 +63,7 @@ function tagFor(ev) {
   if (ev.type === 'letter') return 'letter-' + (Math.round((ev.at - FIRST_LETTER_AT) / DAY) + 1);
   if (ev.type === 'end') return 'end';
   if (ev.type === 'test') return 'test-' + Date.now();
-  if (ev.type === 'love') { const d = new Date(ev.at + KST); return `love-${d.getUTCMonth() + 1}${String(d.getUTCDate()).padStart(2, '0')}-${d.getUTCHours()}`; }
+  if (ev.type === 'love') { const d = new Date(ev.at + KST); return `love-${d.getUTCMonth() + 1}${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCHours()).padStart(2, '0')}00`; }
   const d = new Date(ev.at + KST);
   return `mess-${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}-${d.getUTCHours()}`;
 }
@@ -88,7 +84,7 @@ async function main() {
   let subs = JSON.parse(PUSH_SUBSCRIPTIONS);
   if (!Array.isArray(subs)) subs = [subs];
   const msg = ev.type === 'love'
-    ? { title: '널 사랑할고양', body: `${CAT}: ${LOVE[Math.floor(ev.at / HOUR) % LOVE.length]}` }
+    ? { title: '느루의 한마디 💌', body: loveLine(Math.floor(ev.at / (3 * HOUR)), new Date(ev.at + KST).getUTCHours()) }
     : MSG[ev.type];
   const payload = JSON.stringify({ ...msg, tag: tagFor(ev) });
   for (const [i, sub] of subs.entries()) {

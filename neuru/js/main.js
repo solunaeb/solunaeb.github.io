@@ -1,6 +1,6 @@
 // 널 사랑할고양 — 메인
 import { CAT_NAME, END_AT, FIRST_LETTER_AT, TOTAL_DAYS, GROW_START } from './config.js';
-import { say, flowerTalk, lovePing } from './speech.js';
+import { say, flowerTalk, loveLine } from './speech.js';
 import { migrateLegacyKey } from './chat.js';
 import * as T from './time.js';
 import { store, persist, resetProgress, addUnique } from './store.js';
@@ -162,6 +162,7 @@ const app = {
   emptyHumid() { store.humid = { ...store.humid, refillAt: now() - HUMID_MS }; },
   sleepNow() { cat.lastTouch = -1e9; cat.holdUntil = 0; },
   loveTest() { handleEvent({ type: 'love', at: now() }); },
+  setLove(cfg) { store.love = { ...store.love, ...cfg }; lastEventT = now(); },
   setTorch(hung) { store.torch = { hung, lit: hung }; if (hung) { sfx.ignite(); FX.spawnSparkles(118, 50, 8, 8); toast('횃불을 벽에 걸었어요. 누르면 켜고 끌 수 있어요.'); } else toast('횃불을 서랍에 넣었어요.'); },
   ramenActive: () => store.ramen.until > now() && store.ramen.bites < 3,
   cookRamen() { store.ramen = { until: now() + 20 * 60 * 1000, bites: 0 }; sfx.whoosh(); FX.spawnPuff(R2.RAMEN_AT[0], R2.RAMEN_AT[1], 8, '#ffffff'); toast('보글보글… 까르보 불닭 한 그릇 완성!'); if (!cat.busy) { cat.goToFloor(R2.RAMEN_AT[0] + 22, 'sit'); cat.hold(10000); } },
@@ -205,16 +206,24 @@ function catCelebrate(ms) {
 }
 
 // ────────── 고양이 ──────────
-let purrOff = null, lastPet = 0;
+let purrOff = null, lastPet = 0, petStreak = 0;
+// 쓰다듬을 때 말하기: 말풍선이 사라진 뒤에만, 처음 쓰다듬을 땐 꼭, 계속 쓰다듬으면 자주
+function petLine(t, prevPet) {
+  if (!bubbleEl.hidden && t < bubbleUntil) return false;
+  if (t - lastSpeak < 1800) return false;
+  petStreak = t - prevPet < 3000 ? petStreak + 1 : 0;
+  return petStreak === 0 || Math.random() < 0.7;
+}
 function petCat() {
   const t = performance.now();
   if (t - lastPet < 250) return;
+  const prevPet = lastPet;
   lastPet = t;
   initAudio();
   const wasSleeping = cat.sleeping;
   cat.touch();
   if (wasSleeping) { speak(say('wake', cat.grow), 3600); sfx.meow(); }
-  else if (t - lastSpeak > 5000 && Math.random() < 0.45) speak(say('pet', cat.grow), 3800);
+  else if (petLine(t, prevPet)) speak(say('pet', cat.grow), 2600);
   const b = cat.box;
   FX.spawnHearts(b.x + b.w / 2 - 2, b.y - 2, 2);
   cat.happy(1800); cat.hold(9000);
@@ -517,7 +526,7 @@ let lastEventT = 0;
 function checkEvents() {
   const t = now();
   if (lastEventT && t > lastEventT && t - lastEventT < 10 * 60 * 1000) {
-    for (const ev of T.upcomingEvents(lastEventT, t - lastEventT)) if (ev.at <= t) handleEvent(ev);
+    for (const ev of T.upcomingEvents(lastEventT, t - lastEventT, store.love)) if (ev.at <= t) handleEvent(ev);
   }
   lastEventT = t;
 }
@@ -542,7 +551,8 @@ async function handleEvent(ev) {
     N.systemNotify('end', tag);
     celebrate(false);
   } else if (ev.type === 'love') {
-    const msg = lovePing(Math.floor(ev.at / 3600000)).replace(/^[^:]+:\s*/, '');
+    const msg = loveLine(store.loveSeq || 0, T.kst(ev.at).h);
+    store.loveSeq = (store.loveSeq || 0) + 1;
     if (cat.sleeping) cat.touch();
     sfx.meow(); const b = cat.box; FX.spawnHearts(b.x + b.w / 2, b.y, 4);
     speak(msg, 6000);

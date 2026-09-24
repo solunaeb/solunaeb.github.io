@@ -12,6 +12,8 @@ const defaults = () => ({
   humid: { refillAt: 0, light: true },
   vol: { sfx: 0.8, music: 0.8, amb: 0.45 },
   lastGrowDay: 0,
+  love: { on: true, every: 60, from: 9, to: 22 }, // 느루의 한마디 알림 설정
+  loveSeq: 0,          // 몇 번째 한마디인지 (같은 말이 연달아 나오지 않게)
   fire: false,
   lampFloor: true,
   lampWall: true,
